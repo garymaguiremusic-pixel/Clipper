@@ -43,7 +43,7 @@ namespace solidclip
         const int f = 1 << c.osIndex;
         const auto latencyOs = (int) std::lround ((double) oversamplerFor (c).getLatencyInSamples() * f);
         const int osLatency = (latencyOs + oversamplingPad (c)) / f;
-        return osLatency + 2 * (lookahead ? lookaheadBase : 0) + guardLatency;
+        return osLatency + (lookahead ? lookaheadBase : 0) + guardLatency;
     }
 
     //==============================================================================
@@ -70,9 +70,9 @@ namespace solidclip
         }
 
         const int maxStageLookahead = lookaheadBase * (1 << kMaxFactorShift) + (1 << kMaxFactorShift);
-        stereoStage.prepare (maxStageLookahead);
-        msStage.prepare (maxStageLookahead);
-        referenceDelay.prepare (2 * maxStageLookahead);
+        clipper.prepare (maxStageLookahead, maxStageLookahead + 1);
+        clipperDelay.prepare (maxStageLookahead);
+        referenceDelay.prepare (maxStageLookahead);
 
         guard.prepare (sampleRate);
         guardLatency = guard.getLatency();
@@ -95,9 +95,9 @@ namespace solidclip
         for (auto* v : { &inGain, &outGain, &guardCeiling, &guardAmt, &deltaAmt, &bypassAmt })
             v->assign ((size_t) maxBlock, 0.0f);
 
-        for (auto* v : { &inputGainDb, &outputGainDb, &ceilingDb, &kneeDb, &midCeilingDb, &midKneeDb, &sideCeilingDb, &sideKneeDb, &link })
+        for (auto* v : { &inputGainDb, &outputGainDb, &ceilingDb, &kneeDb })
             v->reset (sampleRate, 0.02);
-        for (auto* v : { &stereoAmount, &msAmount, &midAmount, &sideAmount, &guardAmount, &deltaAmount, &bypassAmount })
+        for (auto* v : { &stereoAmount, &midAmount, &sideAmount, &lrLinkAmount, &guardAmount, &deltaAmount, &bypassAmount })
             v->reset (sampleRate, 0.01);
 
         switchStep = (float) (1.0 / (0.005 * sampleRate));
@@ -123,9 +123,11 @@ namespace solidclip
 
         const int pad = oversamplingPad (c);
         stageLookahead = c.lookahead ? lookaheadBase * factor : 0;
-        stereoStage.configure (stageLookahead);
-        msStage.configure (stageLookahead + pad);
-        referenceDelay.setDelay (2 * stageLookahead + pad);
+        // the pad makes the total latency a whole number of host samples
+        clipper.configure (stageLookahead + pad, 0);
+        clipperDelay.setDelay (stageLookahead + pad);
+        clipperDelay.reset();
+        referenceDelay.setDelay (stageLookahead + pad);
         referenceDelay.reset();
         currentWindow = -1;
 
@@ -151,18 +153,10 @@ namespace solidclip
         set (outputGainDb, s.outputGainDb);
         set (ceilingDb, s.ceilingDb);
         set (kneeDb, s.kneeDb);
-        set (midCeilingDb, s.midCeilingDb);
-        set (midKneeDb, s.midKneeDb);
-        set (sideCeilingDb, s.sideCeilingDb);
-        set (sideKneeDb, s.sideKneeDb);
-        set (link, std::clamp (s.link, 0.0f, 1.0f));
-
-        const float stereoOn = s.mode == Mode::Stereo ? 1.0f : (s.mode == Mode::MidSide ? 0.0f : (s.stereoStageOn ? 1.0f : 0.0f));
-        const float msOn     = s.mode == Mode::Stereo ? 0.0f : (s.mode == Mode::MidSide ? 1.0f : (s.msStageOn ? 1.0f : 0.0f));
-        set (stereoAmount, stereoOn);
-        set (msAmount, msOn);
-        set (midAmount, s.midOn ? 1.0f : 0.0f);
-        set (sideAmount, s.sideOn ? 1.0f : 0.0f);
+        set (stereoAmount, s.mode == Mode::Stereo ? 1.0f : 0.0f);
+        set (midAmount,    s.mode == Mode::Mid    ? 1.0f : 0.0f);
+        set (sideAmount,   s.mode == Mode::Side   ? 1.0f : 0.0f);
+        set (lrLinkAmount, s.lrLink ? 1.0f : 0.0f);
         set (guardAmount, s.guard ? 1.0f : 0.0f);
         set (deltaAmount, s.delta ? 1.0f : 0.0f);
         set (bypassAmount, s.bypass ? 1.0f : 0.0f);
@@ -191,10 +185,8 @@ namespace solidclip
         }
 
         // 1. control values at the host rate ------------------------------------------------
-        SoftClipCurve stereoCurve, midCurve, sideCurve;
-        stereoCurve.set (ceilingDb.getCurrentValue(), kneeDb.getCurrentValue());
-        midCurve.set (midCeilingDb.getCurrentValue(), midKneeDb.getCurrentValue());
-        sideCurve.set (sideCeilingDb.getCurrentValue(), sideKneeDb.getCurrentValue());
+        SoftClipCurve curve;
+        curve.set (ceilingDb.getCurrentValue(), kneeDb.getCurrentValue());
         float inG = dbToGain (inputGainDb.getCurrentValue()), outG = dbToGain (outputGainDb.getCurrentValue());
 
         for (int i = 0; i < n; ++i)
@@ -202,26 +194,19 @@ namespace solidclip
             auto& cf = controls[(size_t) i];
 
             if (ceilingDb.isSmoothing() || kneeDb.isSmoothing())
-                stereoCurve.set (ceilingDb.getNextValue(), kneeDb.getNextValue());
-            if (midCeilingDb.isSmoothing() || midKneeDb.isSmoothing())
-                midCurve.set (midCeilingDb.getNextValue(), midKneeDb.getNextValue());
-            if (sideCeilingDb.isSmoothing() || sideKneeDb.isSmoothing())
-                sideCurve.set (sideCeilingDb.getNextValue(), sideKneeDb.getNextValue());
+                curve.set (ceilingDb.getNextValue(), kneeDb.getNextValue());
             if (inputGainDb.isSmoothing())  inG  = dbToGain (inputGainDb.getNextValue());
             if (outputGainDb.isSmoothing()) outG = dbToGain (outputGainDb.getNextValue());
 
-            const float ms = msAmount.getNextValue();
-            cf.stereo = stereoCurve;
-            cf.mid = midCurve;
-            cf.side = sideCurve;
-            cf.link = link.getNextValue();
-            cf.stereoAmt = stereoAmount.getNextValue();
-            cf.midAmt = ms * midAmount.getNextValue();
-            cf.sideAmt = ms * sideAmount.getNextValue();
+            cf.curve = curve;
+            cf.modes.stereo = stereoAmount.getNextValue();
+            cf.modes.mid = midAmount.getNextValue();
+            cf.modes.side = sideAmount.getNextValue();
+            cf.modes.lrLink = lrLinkAmount.getNextValue();
 
             inGain[(size_t) i] = inG;
             outGain[(size_t) i] = outG;
-            guardCeiling[(size_t) i] = stereoCurve.ceiling;
+            guardCeiling[(size_t) i] = curve.ceiling;
             guardAmt[(size_t) i] = guardAmount.getNextValue();
             deltaAmt[(size_t) i] = deltaAmount.getNextValue();
             bypassAmt[(size_t) i] = bypassAmount.getNextValue();
@@ -230,8 +215,7 @@ namespace solidclip
         const int window = active.lookahead ? 1 + (int) std::lround (shapeTarget * (float) stageLookahead) : 1;
         if (window != currentWindow)
         {
-            stereoStage.setWindow (window);
-            msStage.setWindow (window);
+            clipper.setWindow (window, window);
             currentWindow = window;
         }
 
@@ -262,9 +246,15 @@ namespace solidclip
         float* o2 = difference ? nullptr : osBlock.getChannelPointer (2);
         float* o3 = difference ? nullptr : osBlock.getChannelPointer (3);
 
-        float minStereo = 1.0f, minMid = 1.0f, minSide = 1.0f;
+        AppliedGains minGain;
+        auto trackMin = [] (AppliedGains& m, const AppliedGains& g)
+        {
+            m.left = std::min (m.left, g.left);
+            m.right = std::min (m.right, g.right);
+            m.mid = std::min (m.mid, g.mid);
+            m.side = std::min (m.side, g.side);
+        };
         const int osSamples = n << factorShift;
-        MidSideClipper::Settings msSettings;
 
         for (int j = 0; j < osSamples; ++j)
         {
@@ -273,16 +263,9 @@ namespace solidclip
             float ref[2]   = { o0[j], o1[j] };
             referenceDelay.process (ref);
 
-            minStereo = std::min (minStereo, stereoStage.process (frame, cf.stereo, cf.stereoAmt));
-
-            msSettings.mid = &cf.mid;
-            msSettings.side = &cf.side;
-            msSettings.midAmount = cf.midAmt;
-            msSettings.sideAmount = cf.sideAmt;
-            msSettings.link = cf.link;
-            const auto g = msStage.process (frame, msSettings);
-            minMid = std::min (minMid, g.mid);
-            minSide = std::min (minSide, g.side);
+            const auto required = ModeClipper::fromCurve (frame, cf.curve);
+            clipperDelay.process (frame);
+            trackMin (minGain, clipper.process (frame, required, cf.modes));
 
             if (difference)
             {
@@ -307,7 +290,8 @@ namespace solidclip
         const auto* d2 = downOutput.getReadPointer (2);
         const auto* d3 = downOutput.getReadPointer (3);
         const int preGuardTap = totalLatency - guardLatency;
-        float minGuard = 1.0f, outPeak = 0.0f;
+        AppliedGains minGuard;
+        float outPeak = 0.0f;
 
         for (int i = 0; i < n; ++i)
         {
@@ -329,7 +313,7 @@ namespace solidclip
             }
 
             preGuardRef.process (pre);
-            minGuard = std::min (minGuard, guard.process (wet, guardCeiling[(size_t) i], guardAmt[(size_t) i]));
+            trackMin (minGuard, guard.process (wet, guardCeiling[(size_t) i], guardAmt[(size_t) i], controls[(size_t) i].modes));
 
             const float dA = deltaAmt[(size_t) i];
             float outL = dA > 0.0f ? mix (wet[0], pre[0] - wet[0], dA) : wet[0];
@@ -361,9 +345,10 @@ namespace solidclip
 
         MeterState::raise (meters.inputPeak, inPeak);
         MeterState::raise (meters.outputPeak, outPeak);
-        MeterState::raise (meters.stereoGrDb, -gainToDb (minStereo));
-        MeterState::raise (meters.midGrDb, -gainToDb (minMid));
-        MeterState::raise (meters.sideGrDb, -gainToDb (minSide));
-        MeterState::raise (meters.guardGrDb, -gainToDb (minGuard));
+        MeterState::raise (meters.leftGrDb, -gainToDb (minGain.left));
+        MeterState::raise (meters.rightGrDb, -gainToDb (minGain.right));
+        MeterState::raise (meters.midGrDb, -gainToDb (minGain.mid));
+        MeterState::raise (meters.sideGrDb, -gainToDb (minGain.side));
+        MeterState::raise (meters.guardGrDb, -gainToDb (std::min ({ minGuard.left, minGuard.right, minGuard.mid, minGuard.side })));
     }
 }

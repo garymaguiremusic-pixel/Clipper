@@ -3,6 +3,7 @@
 #include "GainSmoother.h"
 #include "Lookahead.h"
 #include "SoftClipCurve.h"
+#include "ModeClipper.h"
 #include <array>
 #include <cmath>
 
@@ -10,10 +11,11 @@ namespace solidclip
 {
     /**
         4x true-peak detector using the ITU-R BS.1770-4 (Annex 2) 48-tap interpolation
-        filter, the reference most true-peak meters follow. For one sample it returns
-        max(|x|) over the sample itself and the four interpolated points between it and
-        the next sample (at +1/8, +3/8, +5/8, +7/8), on both channels.
+        filter, the reference most true-peak meters follow. For one sample it returns,
+        per lane, max(|x|) over the sample itself and the four interpolated points between
+        it and the next sample (at +1/8, +3/8, +5/8, +7/8).
     */
+    template <int NumLanes>
     class TruePeakDetector
     {
     public:
@@ -43,20 +45,20 @@ namespace solidclip
             pos = 0;
         }
 
-        /** Pushes a frame; returns the peak estimate for the frame pushed `delay` frames ago. */
-        float process (float l, float r) noexcept
+        /** Pushes one value per lane; writes the peak estimates for the values pushed
+            `delay` frames ago. */
+        void process (const float* in, float* peaks) noexcept
         {
             constexpr int n = tapsPerPhase;
-            history[0][(size_t) pos] = history[0][(size_t) pos + n] = l;
-            history[1][(size_t) pos] = history[1][(size_t) pos + n] = r;
+            for (int ch = 0; ch < NumLanes; ++ch)
+                history[(size_t) ch][(size_t) pos] = history[(size_t) ch][(size_t) pos + n] = in[ch];
             pos = (pos + 1) % n;
 
             // history[pos .. pos + n - 1] runs oldest -> newest
-            float peak = 0.0f;
-            for (int ch = 0; ch < 2; ++ch)
+            for (int ch = 0; ch < NumLanes; ++ch)
             {
                 const float* x = history[(size_t) ch].data() + pos;
-                peak = std::max (peak, std::abs (x[n - 1 - delay]));
+                float peak = std::abs (x[n - 1 - delay]);
                 for (const auto& c : coeffs)
                 {
                     double acc = 0.0;
@@ -64,12 +66,12 @@ namespace solidclip
                         acc += c[j] * (double) x[n - 1 - j];
                     peak = std::max (peak, (float) std::abs (acc));
                 }
+                peaks[ch] = peak;
             }
-            return peak;
         }
 
     private:
-        std::array<std::array<float, 2 * tapsPerPhase>, 2> history {};
+        std::array<std::array<float, 2 * tapsPerPhase>, (size_t) NumLanes> history {};
         int pos = 0;
     };
 
@@ -77,8 +79,10 @@ namespace solidclip
         Final safety stage at the host rate. Oversampled clipping is followed by the
         down-sampling filter, which removes the clipped harmonics above Nyquist and can
         leave small overshoots. This stage looks ahead at the true peaks of the
-        down-sampled signal and applies a short, smooth, linked gain dip only where they
-        would exceed the ceiling. Where nothing exceeds it, the gain is exactly 1.0.
+        down-sampled signal and applies a short, smooth gain dip only where they would
+        exceed the ceiling. It works on the same signals as the mode (L/R, Mid or Side), so
+        in Mid mode it never touches the sides and vice versa. Where nothing exceeds the
+        ceiling, the gain is exactly 1.0.
     */
     class TruePeakGuard
     {
@@ -86,12 +90,12 @@ namespace solidclip
         void prepare (double sampleRate)
         {
             box = std::max (1, (int) std::lround (sampleRate * 0.0007));
-            const int k = TruePeakDetector::span;
+            const int k = Detector::span;
             smootherDelay = k + box - 1;
             smoother.prepare (smootherDelay, box + 2 * k);
             smoother.configure (smootherDelay, k);
             smoother.setWindow (box + 2 * k, box);
-            latency = TruePeakDetector::delay + smootherDelay;
+            latency = Detector::delay + smootherDelay;
             delayLine.prepare (latency);
             delayLine.setDelay (latency);
             reset();
@@ -106,27 +110,30 @@ namespace solidclip
             delayLine.reset();
         }
 
-        /** In-place on one frame. amount fades the guard in and out. Returns the gain applied. */
-        float process (float* frame, float ceiling, float amount) noexcept
+        /** In-place on one frame. amount fades the guard in and out. Returns the gains applied. */
+        AppliedGains process (float* frame, float ceiling, float amount, const ModeAmounts& modes) noexcept
         {
-            const float peak = detector.process (frame[0], frame[1]);
-            float required = peak > ceiling ? ceiling / peak : 1.0f;
-            if (amount < 1.0f)
-                required = amount <= 0.0f ? 1.0f : 1.0f + amount * (required - 1.0f);
+            float lanes[4], peaks[4];
+            lanes[0] = frame[0];
+            lanes[1] = frame[1];
+            MidSideCodec::encode (frame[0], frame[1], lanes[2], lanes[3]);
+            detector.process (lanes, peaks);
 
-            const float g = smoother.process (required);
-            delayLine.process (frame);
-            if (! exactlyEquals (g, 1.0f))
+            auto required = [ceiling, amount] (float peak)
             {
-                frame[0] *= g;
-                frame[1] *= g;
-            }
-            return g;
+                const float r = peak > ceiling ? ceiling / peak : 1.0f;
+                return amount >= 1.0f ? r : (amount <= 0.0f ? 1.0f : 1.0f + amount * (r - 1.0f));
+            };
+            const RequiredGains r { required (peaks[0]), required (peaks[1]), required (peaks[2]), required (peaks[3]) };
+
+            delayLine.process (frame);
+            return smoother.process (frame, r, modes);
         }
 
     private:
-        TruePeakDetector detector;
-        GainSmoother smoother;
+        using Detector = TruePeakDetector<4>;
+        Detector detector;
+        ModeClipper smoother;
         Lookahead<2> delayLine;
         int box = 1, smootherDelay = 0, latency = 0;
     };

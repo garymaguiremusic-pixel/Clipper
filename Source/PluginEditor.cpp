@@ -17,26 +17,17 @@ SolidClipView::SolidClipView (SolidClipAudioProcessor& p)
     auto& apvts = processor.apvts;
 
     // Dropdowns ------------------------------------------------------------------
-    setupCombo (modeBox,         sc::getModeNames(),         "Processing mode: Stereo (linked L/R), Mid/Side, or both in series");
     setupCombo (oversamplingBox, sc::getOversamplingNames(), "Oversampling factor for detection and gain (catches inter-sample peaks)");
     setupCombo (filterBox,       sc::getFilterNames(),       "Min phase IIR = low latency. Linear phase FIR = bit-transparent below the knee, more latency");
-
-    const std::pair<ComboBox*, const char*> combos[] =
-    {
-        { &modeBox, sc::ParamIDs::mode }, { &oversamplingBox, sc::ParamIDs::oversampling }, { &filterBox, sc::ParamIDs::filterType },
-    };
-    for (auto& [box, id] : combos)
-        comboAttachments.push_back (std::make_unique<ComboAttachment> (apvts, id, *box));
+    comboAttachments.push_back (std::make_unique<ComboAttachment> (apvts, sc::ParamIDs::oversampling, oversamplingBox));
+    comboAttachments.push_back (std::make_unique<ComboAttachment> (apvts, sc::ParamIDs::filterType, filterBox));
 
     // Knobs ----------------------------------------------------------------------
     const std::pair<SolidKnob*, const char*> knobs[] =
     {
-        { &inputKnob, sc::ParamIDs::inputGain },     { &outputKnob, sc::ParamIDs::outputGain },
-        { &ceilingKnob, sc::ParamIDs::ceiling },     { &kneeKnob, sc::ParamIDs::knee },
+        { &inputKnob, sc::ParamIDs::inputGain }, { &outputKnob, sc::ParamIDs::outputGain },
+        { &ceilingKnob, sc::ParamIDs::ceiling }, { &kneeKnob, sc::ParamIDs::knee },
         { &shapeKnob, sc::ParamIDs::shape },
-        { &midCeilingKnob, sc::ParamIDs::midCeiling },   { &midKneeKnob, sc::ParamIDs::midKnee },
-        { &sideCeilingKnob, sc::ParamIDs::sideCeiling }, { &sideKneeKnob, sc::ParamIDs::sideKnee },
-        { &linkKnob, sc::ParamIDs::msLink },
     };
     for (auto& [knob, id] : knobs)
     {
@@ -44,29 +35,23 @@ SolidClipView::SolidClipView (SolidClipAudioProcessor& p)
         addAndMakeVisible (*knob);
     }
 
-    inputKnob.extraTooltip   = "Drive into the clipper";
-    ceilingKnob.extraTooltip = "Maximum output level. In Mid/Side mode this is the TP Guard ceiling on L/R";
-    kneeKnob.extraTooltip    = "Soft knee below the ceiling. Below (ceiling - knee) the signal is untouched";
+    inputKnob.showValueAlways = outputKnob.showValueAlways = true;
+    inputKnob.extraTooltip   = "Drive into the clipper. With Link on, Output moves the opposite way";
+    ceilingKnob.extraTooltip = "The level nothing gets above";
+    kneeKnob.extraTooltip    = "How gently clipping starts: 0 dB = hard clip at the ceiling.\n"
+                               "3 dB = the curve starts bending 3 dB below the ceiling (smoother, fewer harsh harmonics).\n"
+                               "Below (ceiling - knee) the audio is untouched - see the transfer curve";
     shapeKnob.extraTooltip   = "0 % = pure clipper. Higher = smoother gain over up to 3 ms with matching lookahead";
-    linkKnob.extraTooltip    = "100 % = one shared gain for Mid and Side (ratio preserved, no added side distortion).\n"
-                               "Lower = independent gains: clipping Side on its own causes audible side-channel distortion";
-    midCeilingKnob.extraTooltip  = "Mid ceiling (M = (L + R) / 2)";
-    sideCeilingKnob.extraTooltip = "Side ceiling (S = (L - R) / 2)";
-    kneeKnob.inactiveHint = "Used by the Stereo stage only";
-    for (auto* k : { &midCeilingKnob, &midKneeKnob, &sideCeilingKnob, &sideKneeKnob, &linkKnob })
-        k->inactiveHint = "Used in Mid/Side and Stereo + M/S modes";
 
-    // Buttons ----------------------------------------------------------------------
+    // Toggle buttons ---------------------------------------------------------------
     const std::tuple<TextButton*, const char*, const char*> buttons[] =
     {
-        { &bypassButton,      sc::ParamIDs::bypass,      "Bypass (latency compensated)" },
-        { &linkButton,        sc::ParamIDs::gainLink,    "Link Input and Output: the output undoes the input gain, so driving harder clips more without getting louder" },
-        { &deltaButton,       sc::ParamIDs::delta,       "Delta: listen to exactly what is removed (dry - wet, latency aligned)" },
-        { &guardButton,       sc::ParamIDs::guard,       "True-peak guard: catches the small overshoots the down-sampling filter leaves" },
-        { &stereoStageButton, sc::ParamIDs::stereoStage, "Stereo + M/S mode: engage the Stereo (L/R linked) stage" },
-        { &msStageButton,     sc::ParamIDs::msStage,     "Stereo + M/S mode: engage the Mid/Side stage" },
-        { &midButton,         sc::ParamIDs::midOn,       "Clip the Mid channel (off = Mid passes untouched)" },
-        { &sideButton,        sc::ParamIDs::sideOn,      "Clip the Side channel (off = Side passes untouched)" },
+        { &bypassButton,   sc::ParamIDs::bypass,   "Bypass (latency compensated)" },
+        { &gainLinkButton, sc::ParamIDs::gainLink, "Link Input and Output: turning Input up turns Output down by the same amount" },
+        { &deltaButton,    sc::ParamIDs::delta,    "Delta: listen to exactly what is removed (dry - wet, latency aligned)" },
+        { &guardButton,    sc::ParamIDs::guard,    "True-peak guard: catches the small overshoots the down-sampling filter leaves" },
+        { &lrLinkButton,   sc::ParamIDs::lrLink,   "Stereo mode: on = the same gain on L and R (the stereo image never changes).\n"
+                                                   "Off = L and R are clipped independently" },
     };
     for (auto& [button, id, tip] : buttons)
     {
@@ -76,9 +61,24 @@ SolidClipView::SolidClipView (SolidClipAudioProcessor& p)
         addAndMakeVisible (*button);
     }
 
+    // Mode selector: three radio buttons on the Mode parameter -------------------------
+    const char* modeTips[] =
+    {
+        "Stereo: clip the left and right channels",
+        "Mid: clip only the mid (L + R). The sides are not touched",
+        "Side: clip only the sides (L - R). The mid is not touched",
+    };
+    for (int i = 0; i < 3; ++i)
+    {
+        modeButtons[i].setTooltip (modeTips[i]);
+        modeButtons[i].setRadioGroupId (1001);
+        modeButtons[i].onClick = [this, i] { setMode (i); };
+        addAndMakeVisible (modeButtons[i]);
+    }
+
     for (Component* c : { (Component*) &ceilingLcd, (Component*) &kneeLcd, (Component*) &smoothingLcd, (Component*) &latencyLcd,
-                          (Component*) &inMeter, (Component*) &outMeter, (Component*) &stereoGr, (Component*) &guardGr,
-                          (Component*) &midGr, (Component*) &sideGr })
+                          (Component*) &transferCurve, (Component*) &inMeter, (Component*) &outMeter,
+                          (Component*) &grMeter1, (Component*) &grMeter2, (Component*) &guardGr })
         addAndMakeVisible (*c);
 
     helpButton.setTooltip ("Help");
@@ -112,43 +112,44 @@ float SolidClipView::raw (const char* id) const
     return processor.apvts.getRawParameterValue (id)->load();
 }
 
+void SolidClipView::setMode (int index)
+{
+    auto* param = processor.apvts.getParameter (sc::ParamIDs::mode);
+    param->beginChangeGesture();
+    param->setValueNotifyingHost (param->convertTo0to1 ((float) index));
+    param->endChangeGesture();
+}
+
 //==============================================================================
 void SolidClipView::resized()
 {
-    ioPanel     = { 8.0f,   40.0f, 112.0f, 236.0f };
-    stereoPanel = { 126.0f, 40.0f, 270.0f, 236.0f };
-    msPanel     = { 402.0f, 40.0f, 270.0f, 236.0f };
-    osPanel     = { 678.0f, 40.0f, 134.0f, 236.0f };
-    meterArea   = { 8.0f,  282.0f, 804.0f, 64.0f };
+    ioPanel    = { 8.0f,   40.0f, 112.0f, 236.0f };
+    clipPanel  = { 126.0f, 40.0f, 330.0f, 236.0f };
+    curvePanel = { 462.0f, 40.0f, 210.0f, 236.0f };
+    osPanel    = { 678.0f, 40.0f, 134.0f, 236.0f };
+    meterArea  = { 8.0f,  282.0f, 804.0f, 64.0f };
 
-    // top strip
-    bypassButton.setBounds (548, 8, 60, 19);
-    modeBox.setBounds (660, 7, 152, 21);
+    bypassButton.setBounds (752, 8, 60, 19);
 
-    // INPUT / OUTPUT
-    inputKnob.setBounds (32, 58, 64, 70);
-    linkButton.setBounds (30, 132, 68, 18);
-    outputKnob.setBounds (32, 154, 64, 70);
-    deltaButton.setBounds (16, 240, 96, 22);
+    // IN / OUT
+    inputKnob.setBounds (28, 56, 72, 82);
+    gainLinkButton.setBounds (30, 141, 68, 18);
+    outputKnob.setBounds (28, 162, 72, 82);
+    deltaButton.setBounds (16, 248, 96, 22);
 
-    // STEREO CLIPPER
-    ceilingKnob.setBounds (140, 62, 90, 90);
-    kneeKnob.setBounds (230, 62, 90, 90);
-    shapeKnob.setBounds (322, 80, 64, 72);
-    ceilingLcd.setBounds (140, 158, 89, 22);
-    kneeLcd.setBounds (231, 158, 89, 22);
-    stereoStageButton.setBounds (138, 240, 120, 22);
-    smoothingLcd.setBounds (266, 240, 120, 22);
+    // CLIPPER
+    for (int i = 0; i < 3; ++i)
+        modeButtons[i].setBounds (136 + i * 104, 62, 98, 22);
+    ceilingKnob.setBounds (142, 94, 90, 90);
+    kneeKnob.setBounds (240, 94, 90, 90);
+    shapeKnob.setBounds (352, 102, 64, 72);
+    ceilingLcd.setBounds (142, 188, 89, 22);
+    kneeLcd.setBounds (241, 188, 89, 22);
+    lrLinkButton.setBounds (136, 240, 150, 22);
+    smoothingLcd.setBounds (296, 240, 150, 22);
 
-    // MID / SIDE
-    midButton.setBounds (412, 62, 120, 20);
-    sideButton.setBounds (542, 62, 120, 20);
-    midCeilingKnob.setBounds (408, 88, 64, 72);
-    midKneeKnob.setBounds (472, 88, 64, 72);
-    sideCeilingKnob.setBounds (538, 88, 64, 72);
-    sideKneeKnob.setBounds (602, 88, 64, 72);
-    linkKnob.setBounds (420, 186, 64, 72);
-    msStageButton.setBounds (502, 240, 160, 22);
+    // TRANSFER CURVE
+    transferCurve.setBounds (470, 62, 194, 206);
 
     // OVERSAMPLING
     oversamplingBox.setBounds (686, 80, 118, 21);
@@ -160,10 +161,9 @@ void SolidClipView::resized()
     const int colX[] = { 16, 284, 552 }, rowY[] = { 288, 316 }, colW = 252, rowH = 24;
     inMeter.setBounds  (colX[0], rowY[0], colW, rowH);
     outMeter.setBounds (colX[0], rowY[1], colW, rowH);
-    stereoGr.setBounds (colX[1], rowY[0], colW, rowH);
-    guardGr.setBounds  (colX[1], rowY[1], colW, rowH);
-    midGr.setBounds    (colX[2], rowY[0], colW, rowH);
-    sideGr.setBounds   (colX[2], rowY[1], colW, rowH);
+    grMeter1.setBounds (colX[1], rowY[0], colW, rowH);
+    grMeter2.setBounds (colX[1], rowY[1], colW, rowH);
+    guardGr.setBounds  (colX[2], rowY[0], colW, rowH);
 
     helpButton.setBounds (kWidth - 26, kBottomBarY + 6, 20, 20);
     helpOverlay.setBounds (getLocalBounds());
@@ -191,28 +191,27 @@ void SolidClipView::setActive (Component& c, bool active)
 void SolidClipView::updateActiveStates()
 {
     const int mode = jlimit (0, 2, (int) raw (sc::ParamIDs::mode));
-    const bool serial = mode == (int) solidclip::Mode::Serial;
-    const bool stereoUsed = mode == (int) solidclip::Mode::Stereo || (serial && raw (sc::ParamIDs::stereoStage) > 0.5f);
-    const bool msUsed = mode == (int) solidclip::Mode::MidSide || (serial && raw (sc::ParamIDs::msStage) > 0.5f);
-    const bool midOn = raw (sc::ParamIDs::midOn) > 0.5f, sideOn = raw (sc::ParamIDs::sideOn) > 0.5f;
+    for (int i = 0; i < 3; ++i)
+        modeButtons[i].setToggleState (i == mode, dontSendNotification);
 
-    setActive (stereoStageButton, serial);
-    setActive (msStageButton, serial);
+    const bool stereo = mode == (int) solidclip::Mode::Stereo;
+    setActive (lrLinkButton, stereo);
+    lrLinkButton.setButtonText (raw (sc::ParamIDs::lrLink) > 0.5f ? "L/R Link: On" : "L/R Link: Off");
 
-    setActive (kneeKnob, stereoUsed);
-    kneeLcd.setDimmed (! stereoUsed);
-
-    setActive (midButton, msUsed);
-    setActive (sideButton, msUsed);
-    setActive (linkKnob, msUsed);
-    setActive (midCeilingKnob, msUsed && midOn);
-    setActive (midKneeKnob, msUsed && midOn);
-    setActive (sideCeilingKnob, msUsed && sideOn);
-    setActive (sideKneeKnob, msUsed && sideOn);
-
-    stereoGr.setDimmed (! stereoUsed);
-    midGr.setDimmed (! (msUsed && midOn));
-    sideGr.setDimmed (! (msUsed && sideOn));
+    if (stereo)
+    {
+        grMeter1.setLabel ("L GR");
+        grMeter2.setLabel ("R GR");
+        grMeter1.setDimmed (false);
+        grMeter2.setDimmed (false);
+    }
+    else
+    {
+        grMeter1.setLabel ("Mid GR");
+        grMeter2.setLabel ("Side GR");
+        grMeter1.setDimmed (mode != (int) solidclip::Mode::Mid);
+        grMeter2.setDimmed (mode != (int) solidclip::Mode::Side);
+    }
     guardGr.setDimmed (raw (sc::ParamIDs::guard) < 0.5f);
 }
 
@@ -302,13 +301,12 @@ void SolidClipView::paint (Graphics& g)
     g.drawHorizontalLine (kTopStripH, 0.0f, (float) kWidth);
 
     drawWordmark (g, { 14.0f, 0.0f, 260.0f, (float) kTopStripH });
-    CustomLookAndFeel::drawSmallLabel (g, "Mode", { 612.0f, 8.0f, 44.0f, 19.0f }, Justification::centredRight);
 
     // --- panels ---------------------------------------------------------------------
-    CustomLookAndFeel::drawPanel (g, ioPanel,     "In / Out");
-    CustomLookAndFeel::drawPanel (g, stereoPanel, "Stereo Clipper");
-    CustomLookAndFeel::drawPanel (g, msPanel,     "Mid / Side");
-    CustomLookAndFeel::drawPanel (g, osPanel,     "Oversampling");
+    CustomLookAndFeel::drawPanel (g, ioPanel,    "In / Out");
+    CustomLookAndFeel::drawPanel (g, clipPanel,  "Clipper");
+    CustomLookAndFeel::drawPanel (g, curvePanel, "Transfer Curve");
+    CustomLookAndFeel::drawPanel (g, osPanel,    "Oversampling");
 
     auto divider = [&g] (float y, float x0, float x1)
     {
@@ -322,20 +320,10 @@ void SolidClipView::paint (Graphics& g)
         CustomLookAndFeel::drawSmallLabel (g, text, { x, y, w, 12.0f }, Justification::centredLeft);
     };
 
-    divider (226.0f, 16.0f, 112.0f);
-    label ("Listen", 16.0f, 226.0f, 96.0f);
 
-    divider (190.0f, 134.0f, 388.0f);
-    label ("Serial stage", 138.0f, 226.0f, 120.0f);
-    label ("Smoothing", 266.0f, 226.0f, 120.0f);
-
-    // M/S: column divider and bottom row
-    g.setColour (SolidColours::bevelDark);
-    g.drawVerticalLine (537, 64.0f, 164.0f);
-    g.setColour (Colours::white.withAlpha (0.07f));
-    g.drawVerticalLine (538, 64.0f, 164.0f);
-    divider (172.0f, 410.0f, 664.0f);
-    label ("Serial stage", 502.0f, 226.0f, 160.0f);
+    divider (218.0f, 134.0f, 448.0f);
+    label ("Stereo channels", 136.0f, 226.0f, 150.0f);
+    label ("Smoothing", 296.0f, 226.0f, 150.0f);
 
     label ("Factor", 686.0f, 66.0f, 118.0f);
     label ("Filter", 686.0f, 108.0f, 118.0f);
@@ -377,13 +365,10 @@ void SolidClipView::timerCallback()
 
     updateActiveStates();
 
-    const bool linked = raw (sc::ParamIDs::gainLink) > 0.5f;
-    outputKnob.extraTooltip = linked ? "Linked: the output already undoes the Input gain; this is a trim on top"
-                                     : "Gain after clipping (can move the output above the ceiling)";
-
-    const float ceiling = raw (sc::ParamIDs::ceiling);
+    const int mode = jlimit (0, 2, (int) raw (sc::ParamIDs::mode));
+    const float ceiling = raw (sc::ParamIDs::ceiling), knee = raw (sc::ParamIDs::knee);
     ceilingLcd.setContent ("CEILING", String (ceiling, 1) + " dB");
-    kneeLcd.setContent ("KNEE", String (raw (sc::ParamIDs::knee), 1) + " dB");
+    kneeLcd.setContent ("KNEE", knee < 0.05f ? String ("HARD") : String (knee, 1) + " dB");
 
     const float shape = raw (sc::ParamIDs::shape) * 0.01f;
     smoothingLcd.setContent ("SMOOTH", shape <= 0.0f ? String ("CLIP") : String (shape * 3.0f, 2) + " ms");
@@ -392,14 +377,26 @@ void SolidClipView::timerCallback()
     const double sr = processor.getSampleRate() > 0.0 ? processor.getSampleRate() : 44100.0;
     latencyLcd.setContent (String (latency) + " smp", String (1000.0 * latency / sr, 1) + " ms");
 
+    const bool linked = raw (sc::ParamIDs::gainLink) > 0.5f;
+    outputKnob.extraTooltip = linked ? "Linked to Input: it moves the opposite way so the level stays the same"
+                                     : "Gain after clipping (can move the output above the ceiling)";
+
+    static const char* captions[] = { "CLIPPING  L + R", "CLIPPING  MID ONLY", "CLIPPING  SIDE ONLY" };
+    transferCurve.setCurve (ceiling, knee);
+    transferCurve.setCaption (mode == 0 && raw (sc::ParamIDs::lrLink) > 0.5f ? String ("CLIPPING  L + R  (LINKED)") : String (captions[mode]));
+
     auto& m = processor.getMeters();
+    const float inPeak = m.inputPeak.exchange (0.0f);
+    transferCurve.setInputPeak (inPeak, dt);
     inMeter.setCeilingDb (ceiling);
     outMeter.setCeilingDb (ceiling);
-    inMeter.push (m.inputPeak.exchange (0.0f), dt);
+    inMeter.push (inPeak, dt);
     outMeter.push (m.outputPeak.exchange (0.0f), dt);
-    stereoGr.push (m.stereoGrDb.exchange (0.0f), dt);
-    midGr.push (m.midGrDb.exchange (0.0f), dt);
-    sideGr.push (m.sideGrDb.exchange (0.0f), dt);
+
+    const float l = m.leftGrDb.exchange (0.0f), r = m.rightGrDb.exchange (0.0f);
+    const float mid = m.midGrDb.exchange (0.0f), side = m.sideGrDb.exchange (0.0f);
+    grMeter1.push (mode == 0 ? l : mid, dt);
+    grMeter2.push (mode == 0 ? r : side, dt);
     guardGr.push (m.guardGrDb.exchange (0.0f), dt);
 }
 

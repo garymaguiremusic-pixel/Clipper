@@ -9,8 +9,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "DSP/GainSmoother.h"
-#include "DSP/LinkedClipper.h"
-#include "DSP/MidSideClipper.h"
+#include "DSP/ModeClipper.h"
 
 #include <cstdarg>
 #include <cstdio>
@@ -171,7 +170,7 @@ namespace
 
     const char* osName (int i)      { static const char* n[] = { "1x", "2x", "4x", "8x", "16x" }; return n[i]; }
     const char* filterName (int f)  { return f == 0 ? "IIR" : "FIR"; }
-    const char* modeName (int m)    { static const char* n[] = { "Stereo", "Mid/Side", "Stereo+M/S" }; return n[m]; }
+    const char* modeName (int m)    { static const char* n[] = { "Stereo", "Mid", "Side" }; return n[m]; }
 
     //==============================================================================
     void testGainSmootherNeverOvershoots()
@@ -223,52 +222,63 @@ namespace
 
     void testStageRatios()
     {
-        std::printf ("Stages (at the processing rate): linked gain keeps L/R and S/M ratios\n");
+        std::printf ("Clipper stage (at the processing rate): L/R link keeps the ratio, Mid/Side leave the other untouched\n");
         std::mt19937 rng (3);
         std::uniform_real_distribution<float> dist (-2.0f, 2.0f);
 
         solidclip::SoftClipCurve curve;
         curve.set (-1.0f, 3.0f);
 
-        solidclip::LinkedClipper st;
-        st.prepare (64);
-        st.configure (32);
-        st.setWindow (17);
-
-        solidclip::MidSideClipper ms;
-        ms.prepare (64);
-        ms.configure (32);
-        ms.setWindow (17);
-        solidclip::SoftClipCurve sideCurve;
-        sideCurve.set (-6.0f, 2.0f);
-        solidclip::MidSideClipper::Settings set { &curve, &sideCurve, 1.0f, 1.0f, 1.0f };
+        auto makeStage = []
+        {
+            auto st = std::make_unique<solidclip::ModeClipper>();
+            st->prepare (64, 65);
+            st->configure (32, 0);
+            st->setWindow (17, 17);
+            return st;
+        };
+        auto stereo = makeStage(), mid = makeStage(), side = makeStage();
+        solidclip::Lookahead<2> d1, d2, d3;
+        for (auto* d : { &d1, &d2, &d3 }) { d->prepare (32); d->setDelay (32); }
+        const solidclip::ModeAmounts linkedStereo { 1.0f, 0.0f, 0.0f, 1.0f }, midOnly { 0.0f, 1.0f, 0.0f, 1.0f }, sideOnly { 0.0f, 0.0f, 1.0f, 1.0f };
 
         std::vector<std::array<float, 2>> in;
-        double worstLR = 0, worstSM = 0;
+        double worstLR = 0, worstSide = 0, worstMid = 0;
         int clipped = 0;
         for (int n = 0; n < 20000; ++n)
         {
             std::array<float, 2> x { dist (rng), dist (rng) };
             in.push_back (x);
-            float a[2] = { x[0], x[1] }, b[2] = { x[0], x[1] };
-            if (st.process (a, curve, 1.0f) < 1.0f) ++clipped;
-            ms.process (b, set);
+            float a[2] = { x[0], x[1] }, b[2] = { x[0], x[1] }, c[2] = { x[0], x[1] };
+            const auto ra = solidclip::ModeClipper::fromCurve (a, curve);
+            d1.process (a);
+            if (stereo->process (a, ra, linkedStereo).left < 1.0f) ++clipped;
+            const auto rb = solidclip::ModeClipper::fromCurve (b, curve);
+            d2.process (b);
+            mid->process (b, rb, midOnly);
+            const auto rc = solidclip::ModeClipper::fromCurve (c, curve);
+            d3.process (c);
+            side->process (c, rc, sideOnly);
+
             if (n >= 32)
             {
                 const auto& d = in[(size_t) n - 32];
                 if (std::abs (d[1]) > 1e-2f)
                     worstLR = std::max (worstLR, std::abs ((double) a[0] / a[1] - (double) d[0] / d[1]) / std::abs ((double) d[0] / d[1]));
-                const double m0 = (d[0] + d[1]) * 0.5, s0 = (d[0] - d[1]) * 0.5;
-                const double m1 = (b[0] + b[1]) * 0.5, s1 = (b[0] - b[1]) * 0.5;
-                if (std::abs (m0) > 1e-2 && std::abs (s0) > 1e-2)
-                    worstSM = std::max (worstSM, std::abs (s1 / m1 - s0 / m0) / std::abs (s0 / m0));
                 if (std::max (std::abs (a[0]), std::abs (a[1])) > curve.ceiling * 1.000001f)
-                    check (false, "stereo stage output above its ceiling");
+                    check (false, "stereo output above its ceiling");
+                worstSide = std::max (worstSide, std::abs (((double) b[0] - b[1]) - ((double) d[0] - d[1])) * 0.5);
+                worstMid  = std::max (worstMid,  std::abs (((double) c[0] + c[1]) - ((double) d[0] + d[1])) * 0.5);
+                if (std::abs ((b[0] + b[1]) * 0.5f) > curve.ceiling * 1.000001f)
+                    check (false, "Mid mode: mid above the ceiling");
+                if (std::abs ((c[0] - c[1]) * 0.5f) > curve.ceiling * 1.000001f)
+                    check (false, "Side mode: side above the ceiling");
             }
         }
-        check (clipped > 1000, "stereo stage actually clipped the test signal");
-        check (worstLR < 1e-5, fmt ("stereo stage L/R ratio error %.3g", worstLR));
-        check (worstSM < 1e-4, fmt ("M/S stage (link 100%%) S/M ratio error %.3g", worstSM));
+        check (clipped > 1000, "the stage actually clipped the test signal");
+        check (worstLR < 1e-5, fmt ("linked stereo L/R ratio error %.3g", worstLR));
+        check (worstSide < 1e-6, fmt ("Mid mode changed the side by %.3g", worstSide));
+        check (worstMid < 1e-6, fmt ("Side mode changed the mid by %.3g", worstMid));
     }
 
     //==============================================================================
@@ -330,11 +340,15 @@ namespace
                     {
                         if (os == 0 && filter == 1) continue;
                         if (mode != 0 && shape > 0.0f) continue;
+                        for (int lrLink : { 1, 0 })
+                        {
+                        if (lrLink == 0 && (mode != 0 || shape > 0.0f)) continue;
 
                         for (auto& s : sigs)
                         {
                             Rig rig;
                             rig.set (ids::mode, (float) mode);
+                            rig.set (ids::lrLink, (float) lrLink);
                             rig.set (ids::oversampling, (float) os);
                             rig.set (ids::filterType, (float) filter);
                             rig.set (ids::shape, shape);
@@ -345,8 +359,21 @@ namespace
                             Signal l = s.l, r = s.r;
                             rig.run (l, r);
 
-                            const float sp = std::max (peakOf (l), peakOf (r));
-                            const float tp = std::max (truePeakOf (l), truePeakOf (r));
+                            // what each mode keeps under the ceiling: L/R, the mid or the side
+                            float sp, tp;
+                            if (mode == 0)
+                            {
+                                sp = std::max (peakOf (l), peakOf (r));
+                                tp = std::max (truePeakOf (l), truePeakOf (r));
+                            }
+                            else
+                            {
+                                Signal part (l.size());
+                                for (size_t i = 0; i < l.size(); ++i)
+                                    part[i] = mode == 1 ? (l[i] + r[i]) * 0.5f : (l[i] - r[i]) * 0.5f;
+                                sp = peakOf (part);
+                                tp = truePeakOf (part);
+                            }
                             const float tpOver = solidclip::gainToDb (tp) - ceilingDb;
                             worstTp = std::max (worstTp, tpOver);
 
@@ -356,6 +383,7 @@ namespace
                             check (tpOver <= 0.01f,
                                    fmt ("%s %s %s shape %.0f %s: true peak %.4f dB over",
                                         modeName (mode), osName (os), filterName (filter), shape, s.name, tpOver));
+                        }
                         }
                     }
         std::printf ("  info: worst true peak relative to the ceiling: %+.3f dB\n", worstTp);
@@ -415,37 +443,66 @@ namespace
         }
     }
 
-    void testMidSideLink()
+    void testMidSideModes()
     {
-        std::printf ("Mid/Side, Link 100%%: the S/M ratio is preserved\n");
+        std::printf ("Mid / Side modes: only the chosen part is clipped, the other is not touched\n");
         const double fs = 44100.0;
-        Signal m = drums (fs, 1.0, 0.9f, 31), s = noise (fs, 1.0, 0.4f, 32);
+        Signal m = drums (fs, 1.0, 0.9f, 31), sd = noise (fs, 1.0, 0.4f, 32);
         Signal inL (m.size()), inR (m.size());
-        for (size_t i = 0; i < m.size(); ++i) { s[i] = 0.5f * s[i] + 0.3f * m[i]; inL[i] = m[i] + s[i]; inR[i] = m[i] - s[i]; }
+        for (size_t i = 0; i < m.size(); ++i) { sd[i] = 0.5f * sd[i] + 0.3f * m[i]; inL[i] = m[i] + sd[i]; inR[i] = m[i] - sd[i]; }
 
-        for (float shape : { 0.0f, 50.0f })
+        for (int mode : { 1, 2 })
+            for (int os : { 0, 2 })
+                for (int filter : { 0, 1 })
+                {
+                    if (os == 0 && filter == 1) continue;
+                    // reference: the same path with nothing clipped (-12 dB in, scaled back up), so the
+                    // oversampling filter's own response (IIR phase) is part of the reference
+                    auto runAt = [&] (float driveDb)
+                    {
+                        Rig rig;
+                        rig.set (ids::mode, (float) mode);
+                        rig.set (ids::oversampling, (float) os);
+                        rig.set (ids::filterType, (float) filter);
+                        rig.set (ids::inputGain, driveDb);
+                        rig.prepare();
+                        std::pair<Signal, Signal> out { inL, inR };
+                        rig.run (out.first, out.second);
+                        return out;
+                    };
+                    const auto [l, r] = runAt (9.0f);
+                    const auto [refL, refR] = runAt (-12.0f);
+                    const double up = solidclip::dbToGain (21.0f);
+
+                    double untouchedError = 0.0, reduced = 0.0;
+                    for (size_t i = 0; i < l.size(); ++i)
+                    {
+                        const double m0 = ((double) refL[i] + refR[i]) * 0.5 * up, s0 = ((double) refL[i] - refR[i]) * 0.5 * up;
+                        const double m1 = ((double) l[i] + r[i]) * 0.5, s1 = ((double) l[i] - r[i]) * 0.5;
+                        const double clippedIn = mode == 1 ? m0 : s0, clippedOut = mode == 1 ? m1 : s1;
+                        const double keptIn = mode == 1 ? s0 : m0, keptOut = mode == 1 ? s1 : m1;
+                        untouchedError = std::max (untouchedError, std::abs (keptOut - keptIn));
+                        reduced = std::max (reduced, std::abs (clippedIn) - std::abs (clippedOut));
+                    }
+                    const double tolerance = 1e-4;
+                    check (reduced > 0.1, fmt ("%s mode %s %s: the %s was clipped", modeName (mode), osName (os), filterName (filter), mode == 1 ? "mid" : "side"));
+                    check (untouchedError < tolerance, fmt ("%s mode %s %s: the %s changed by %.3g", modeName (mode), osName (os), filterName (filter),
+                                                            mode == 1 ? "side" : "mid", untouchedError));
+                }
+
+        // L/R Link off: each channel is clipped on its own (L does not depend on R at all)
+        Rig a, b;
+        for (auto* rig : { &a, &b })
         {
-            Rig rig;
-            rig.set (ids::mode, 1.0f);
-            rig.set (ids::oversampling, 0.0f);
-            rig.set (ids::inputGain, 9.0f);
-            rig.set (ids::msLink, 100.0f);
-            rig.set (ids::shape, shape);
-            rig.prepare();
-            const auto lat = (size_t) rig.latency();
-            Signal l = inL, r = inR;
-            rig.run (l, r);
-
-            double worst = 0.0;
-            for (size_t i = 0; i + lat < l.size(); ++i)
-            {
-                const double m0 = ((double) inL[i] + inR[i]) * 0.5, s0 = ((double) inL[i] - inR[i]) * 0.5;
-                const double m1 = ((double) l[i + lat] + r[i + lat]) * 0.5, s1 = ((double) l[i + lat] - r[i + lat]) * 0.5;
-                if (std::abs (m0) < 1e-2 || std::abs (s0) < 1e-2) continue;
-                worst = std::max (worst, std::abs (s1 / m1 - s0 / m0) / std::abs (s0 / m0));
-            }
-            check (worst < 1e-4, fmt ("shape %.0f: S/M ratio error %.3g", shape, worst));
+            rig->set (ids::lrLink, 0.0f);
+            rig->set (ids::inputGain, 12.0f);
+            rig->set (ids::oversampling, 2.0f);
+            rig->prepare();
         }
+        Signal l1 = inL, r1 = inR, l2 = inL, r2 (inL.size(), 0.0f);
+        a.run (l1, r1);
+        b.run (l2, r2);
+        check (l1 == l2, "L/R Link off: the left channel depends on the right");
     }
 
     //==============================================================================
@@ -506,7 +563,7 @@ namespace
     //==============================================================================
     void testGainLink()
     {
-        std::printf ("In/Out Link: the output undoes the input gain (no level change)\n");
+        std::printf ("In/Out Link: moving Input moves the Output knob the opposite way (no level change)\n");
         const double fs = 44100.0;
         Signal srcL = noise (fs, 0.5, 0.05f, 41), srcR = sweep (fs, 0.5, 0.05f);
 
@@ -517,6 +574,8 @@ namespace
             rig.set (ids::inputGain, drive);
             rig.set (ids::oversampling, 0.0f);
             rig.prepare();
+            const float outParam = rig.proc.apvts.getRawParameterValue (ids::outputGain)->load();
+            check (std::abs (outParam + drive) < 0.02f, fmt ("Input %+.0f dB moved Output to %+.2f dB", drive, outParam));
             const auto lat = (size_t) rig.latency();
             Signal l = srcL, r = srcR;
             rig.run (l, r);
@@ -543,34 +602,54 @@ namespace
     {
         std::printf ("Mode switching: no timing shift and no clicks\n");
         const double fs = 44100.0;
+        const Signal srcL = sweep (fs, 1.5, 0.9f, 100.0, 400.0), srcR = sweep (fs, 1.5, 0.5f, 150.0, 300.0);
+
+        auto largestStep = [] (const Signal& l, const Signal& r, size_t from)
+        {
+            float step = 0.0f;
+            for (size_t i = from + 1; i < l.size(); ++i)
+                step = std::max (step, std::max (std::abs (l[i] - l[i - 1]), std::abs (r[i] - r[i - 1])));
+            return step;
+        };
+
+        // steady state in each mode = what the waveform itself does
+        float steady = 0.0f;
+        for (int mode = 0; mode < 3; ++mode)
+        {
+            Rig rig;
+            rig.set (ids::inputGain, 6.0f);
+            rig.set (ids::mode, (float) mode);
+            rig.prepare();
+            Signal l = srcL, r = srcR;
+            rig.run (l, r);
+            steady = std::max (steady, largestStep (l, r, (size_t) rig.latency()));
+        }
+
         Rig rig;
         rig.set (ids::inputGain, 6.0f);
-        rig.set (ids::sideCeiling, -12.0f);
         rig.prepare();
         const int lat = rig.latency();
-
-        Signal l = sweep (fs, 1.5, 0.9f, 100.0, 400.0), r = sweep (fs, 1.5, 0.5f, 150.0, 300.0);
+        Signal l = srcL, r = srcR;
         juce::MidiBuffer midi;
-        float maxStep = 0.0f;
         size_t pos = 0;
         int block = 0;
+        bool latencyStable = true;
         while (pos < l.size())
         {
-            if (block % 40 == 10) rig.set (ids::mode, (float) ((block / 40) % 3));
-            if (block % 40 == 30) rig.set (ids::mode, (float) ((block / 40 + 1) % 3));
+            if (block % 20 == 10) rig.set (ids::mode, (float) ((block / 20) % 3));
+            if (block % 20 == 15) rig.set (ids::mode, (float) ((block / 20 + 1) % 3));
             const int n = (int) std::min<size_t> (256, l.size() - pos);
             float* chans[] = { l.data() + pos, r.data() + pos };
             juce::AudioBuffer<float> buffer (chans, 2, n);
             rig.proc.processBlock (buffer, midi);
-            check (rig.latency() == lat, "latency changed with the mode");
+            latencyStable = latencyStable && rig.latency() == lat;
             pos += (size_t) n;
             ++block;
         }
-        for (size_t i = (size_t) lat + 1; i < l.size(); ++i)
-            maxStep = std::max (maxStep, std::max (std::abs (l[i] - l[i - 1]), std::abs (r[i] - r[i - 1])));
+        check (latencyStable, "latency changed with the mode");
 
-        // a 400 Hz sine at full scale moves at most 2*pi*400/44100 = 0.057 per sample
-        check (maxStep < 0.08f, fmt ("largest sample step while switching modes: %.4f", maxStep));
+        const float switching = largestStep (l, r, (size_t) lat);
+        check (switching <= steady * 1.1f, fmt ("largest sample step while switching %.4f vs %.4f steady", switching, steady));
     }
 
     //==============================================================================
@@ -642,7 +721,7 @@ int main (int argc, char** argv)
     testTransparency();
     testCeiling();
     testStereoLinking();
-    testMidSideLink();
+    testMidSideModes();
     testLatency();
     testGainLink();
     testModeSwitchIsSmooth();

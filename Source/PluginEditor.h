@@ -32,36 +32,32 @@ private:
     void drawWordmark (juce::Graphics&, juce::Rectangle<float> area);
     static void setActive (juce::Component&, bool active);
     float raw (const char* id) const;
+    void setMode (int index);
 
     SolidClipAudioProcessor& processor;
     juce::Image background;
     float renderScale = 1.0f;
 
-    juce::ComboBox modeBox, oversamplingBox, filterBox;
+    juce::ComboBox oversamplingBox, filterBox;
 
-    SolidKnob inputKnob       { SolidKnob::Size::Small, "Input" };
-    SolidKnob outputKnob      { SolidKnob::Size::Small, "Output" };
-    SolidKnob ceilingKnob     { SolidKnob::Size::Large, "Ceiling" };
-    SolidKnob kneeKnob        { SolidKnob::Size::Large, "Knee" };
-    SolidKnob shapeKnob       { SolidKnob::Size::Small, "Shape" };
-    SolidKnob midCeilingKnob  { SolidKnob::Size::Small, "Ceiling" };
-    SolidKnob midKneeKnob     { SolidKnob::Size::Small, "Knee" };
-    SolidKnob sideCeilingKnob { SolidKnob::Size::Small, "Ceiling" };
-    SolidKnob sideKneeKnob    { SolidKnob::Size::Small, "Knee" };
-    SolidKnob linkKnob        { SolidKnob::Size::Small, "M/S Link" };
+    SolidKnob inputKnob   { SolidKnob::Size::Small, "Input" };
+    SolidKnob outputKnob  { SolidKnob::Size::Small, "Output" };
+    SolidKnob ceilingKnob { SolidKnob::Size::Large, "Ceiling" };
+    SolidKnob kneeKnob    { SolidKnob::Size::Large, "Knee" };
+    SolidKnob shapeKnob   { SolidKnob::Size::Small, "Shape" };
 
-    juce::TextButton bypassButton { "Bypass" }, deltaButton { "Delta" }, guardButton { "TP Guard" }, linkButton { "Link" };
-    juce::TextButton stereoStageButton { "Stereo Stage" }, msStageButton { "M/S Stage" };
-    juce::TextButton midButton { "Mid" }, sideButton { "Side" };
+    juce::TextButton bypassButton { "Bypass" }, deltaButton { "Delta" }, guardButton { "TP Guard" };
+    juce::TextButton gainLinkButton { "Link" }, lrLinkButton { "L/R Link" };
+    juce::TextButton modeButtons[3] { juce::TextButton { "Stereo" }, juce::TextButton { "Mid" }, juce::TextButton { "Side" } };
 
     LcdDisplay ceilingLcd, kneeLcd, smoothingLcd, latencyLcd;
+    TransferCurve transferCurve;
 
-    BarMeter inMeter     { BarMeter::Kind::Level, "In" };
-    BarMeter outMeter    { BarMeter::Kind::Level, "Out" };
-    BarMeter stereoGr    { BarMeter::Kind::GainReduction, "St GR" };
-    BarMeter guardGr     { BarMeter::Kind::GainReduction, "TP GR" };
-    BarMeter midGr       { BarMeter::Kind::GainReduction, "Mid GR" };
-    BarMeter sideGr      { BarMeter::Kind::GainReduction, "Side GR" };
+    BarMeter inMeter  { BarMeter::Kind::Level, "In" };
+    BarMeter outMeter { BarMeter::Kind::Level, "Out" };
+    BarMeter grMeter1 { BarMeter::Kind::GainReduction, "L GR" };
+    BarMeter grMeter2 { BarMeter::Kind::GainReduction, "R GR" };
+    BarMeter guardGr  { BarMeter::Kind::GainReduction, "TP GR" };
 
     HelpButton helpButton;
     HelpOverlay helpOverlay;
@@ -73,7 +69,7 @@ private:
     std::vector<std::unique_ptr<KnobAttachment>> knobAttachments;
     std::vector<std::unique_ptr<ButtonAttachment>> buttonAttachments;
 
-    juce::Rectangle<float> ioPanel, stereoPanel, msPanel, osPanel, meterArea;
+    juce::Rectangle<float> ioPanel, clipPanel, curvePanel, osPanel, meterArea;
     double lastTimerMs = 0.0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SolidClipView)

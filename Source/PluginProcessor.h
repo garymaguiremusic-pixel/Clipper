@@ -5,11 +5,12 @@
 #include "DSP/ClipEngine.h"
 
 //==============================================================================
-class SolidClipAudioProcessor : public juce::AudioProcessor
+class SolidClipAudioProcessor : public juce::AudioProcessor,
+                                private juce::AudioProcessorValueTreeState::Listener
 {
 public:
     SolidClipAudioProcessor();
-    ~SolidClipAudioProcessor() override = default;
+    ~SolidClipAudioProcessor() override;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
@@ -46,6 +47,11 @@ public:
 
 private:
     void syncLatency();
+
+    /** In/Out Link: moving Input moves Output by the opposite amount (visible on the knob). */
+    void parameterChanged (const juce::String& parameterID, float newValue) override;
+    std::atomic<float> lastInputDb { 0.0f };
+    std::atomic<bool> restoringState { false };
 
     solidclip::ClipEngine engine;
     juce::AudioProcessorParameter* bypassParam = nullptr;

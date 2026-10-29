@@ -1,8 +1,7 @@
 #pragma once
 
 #include <juce_dsp/juce_dsp.h>
-#include "LinkedClipper.h"
-#include "MidSideClipper.h"
+#include "ModeClipper.h"
 #include "TruePeakGuard.h"
 #include "Lookahead.h"
 #include <array>
@@ -11,7 +10,7 @@
 
 namespace solidclip
 {
-    enum class Mode { Stereo = 0, MidSide, Serial };
+    enum class Mode { Stereo = 0, Mid, Side };
     enum class FilterType { MinPhaseIIR = 0, LinearPhaseFIR };
 
     struct EngineSettings
@@ -22,11 +21,7 @@ namespace solidclip
         int oversamplingIndex = 2;              // 0..4 -> 1x..16x
         FilterType filter = FilterType::MinPhaseIIR;
         Mode mode = Mode::Stereo;
-        bool stereoStageOn = true, msStageOn = true;
-        bool midOn = true, sideOn = true;
-        float midCeilingDb = -0.3f, midKneeDb = 3.0f;
-        float sideCeilingDb = -6.0f, sideKneeDb = 3.0f;
-        float link = 1.0f;                      // 0..1
+        bool lrLink = true;                     // Stereo: same gain on L and R
         bool delta = false, guard = true, bypass = false;
     };
 
@@ -34,7 +29,7 @@ namespace solidclip
     struct MeterState
     {
         std::atomic<float> inputPeak { 0.0f }, outputPeak { 0.0f };
-        std::atomic<float> stereoGrDb { 0.0f }, midGrDb { 0.0f }, sideGrDb { 0.0f }, guardGrDb { 0.0f };
+        std::atomic<float> leftGrDb { 0.0f }, rightGrDb { 0.0f }, midGrDb { 0.0f }, sideGrDb { 0.0f }, guardGrDb { 0.0f };
 
         static void raise (std::atomic<float>& a, float v) noexcept
         {
@@ -47,11 +42,11 @@ namespace solidclip
         The complete SolidClip signal path. Everything is allocated in prepare(); process()
         is real-time safe.
 
-          input gain -> [up-sample] -> Stereo stage -> M/S stage -> [down-sample]
+          input gain -> [up-sample] -> clipper (Stereo / Mid / Side) -> [down-sample]
                      -> true-peak guard -> delta / output gain -> bypass mix
 
-        Both stages always run (an inactive stage just applies gain 1.0), so every mode has
-        the same latency and switching modes is a short crossfade of the stage amounts.
+        The clipper computes the gains of every mode all the time, so every mode has the same
+        latency and switching modes is a short crossfade of the mode amounts.
 
         Linear-phase (and 1x) processing uses a "difference" path: the dry signal is only
         delayed, and what goes through the oversampler is the *removed* part
@@ -109,8 +104,8 @@ namespace solidclip
         std::atomic<int> latencySamples { 0 };
 
         // DSP blocks ---------------------------------------------------------------------
-        LinkedClipper stereoStage;
-        MidSideClipper msStage;
+        ModeClipper clipper;
+        Lookahead<2> clipperDelay;      // audio delay matching the clipper's lookahead
         Lookahead<2> referenceDelay;    // oversampled input aligned with the stage output
         Lookahead<2> dryRaw;            // un-gained input, for bypass
         Lookahead<2> dryGained;         // gained input, for the difference path
@@ -123,15 +118,15 @@ namespace solidclip
 
         // smoothed controls ----------------------------------------------------------------
         using Linear = juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear>;
-        Linear inputGainDb, outputGainDb, ceilingDb, kneeDb, midCeilingDb, midKneeDb, sideCeilingDb, sideKneeDb;
-        Linear link, stereoAmount, msAmount, midAmount, sideAmount, guardAmount, deltaAmount, bypassAmount;
+        Linear inputGainDb, outputGainDb, ceilingDb, kneeDb;
+        Linear stereoAmount, midAmount, sideAmount, lrLinkAmount, guardAmount, deltaAmount, bypassAmount;
         float shapeTarget = 0.0f;
 
         // per-chunk control arrays at the host rate
         struct ControlFrame
         {
-            SoftClipCurve stereo, mid, side;
-            float link, stereoAmt, midAmt, sideAmt;
+            SoftClipCurve curve;
+            ModeAmounts modes;
         };
         std::vector<ControlFrame> controls;
         std::vector<float> inGain, outGain, guardCeiling, guardAmt, deltaAmt, bypassAmt;

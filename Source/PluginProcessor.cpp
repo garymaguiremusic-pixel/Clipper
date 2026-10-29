@@ -9,6 +9,30 @@ SolidClipAudioProcessor::SolidClipAudioProcessor()
       apvts (*this, nullptr, "SolidClip", sc::createParameterLayout())
 {
     bypassParam = apvts.getParameter (sc::ParamIDs::bypass);
+    lastInputDb = apvts.getRawParameterValue (sc::ParamIDs::inputGain)->load();
+    apvts.addParameterListener (sc::ParamIDs::inputGain, this);
+}
+
+SolidClipAudioProcessor::~SolidClipAudioProcessor()
+{
+    apvts.removeParameterListener (sc::ParamIDs::inputGain, this);
+}
+
+void SolidClipAudioProcessor::parameterChanged (const juce::String& parameterID, float newValue)
+{
+    if (parameterID != sc::ParamIDs::inputGain)
+        return;
+
+    const float change = newValue - lastInputDb.exchange (newValue);
+    if (restoringState.load() || apvts.getRawParameterValue (sc::ParamIDs::gainLink)->load() < 0.5f
+         || std::abs (change) < 1.0e-6f)
+        return;
+
+    auto* output = apvts.getParameter (sc::ParamIDs::outputGain);
+    const auto& range = output->getNormalisableRange();
+    const float target = juce::jlimit (range.start, range.end,
+                                       apvts.getRawParameterValue (sc::ParamIDs::outputGain)->load() - change);
+    output->setValueNotifyingHost (output->convertTo0to1 (target));
 }
 
 bool SolidClipAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -82,7 +106,13 @@ void SolidClipAudioProcessor::setStateInformation (const void* data, int sizeInB
 {
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
         if (xml->hasTagName (apvts.state.getType()))
+        {
+            // a restored session already has matching Input / Output values
+            restoringState = true;
             apvts.replaceState (juce::ValueTree::fromXml (*xml));
+            lastInputDb = apvts.getRawParameterValue (sc::ParamIDs::inputGain)->load();
+            restoringState = false;
+        }
 }
 
 //==============================================================================

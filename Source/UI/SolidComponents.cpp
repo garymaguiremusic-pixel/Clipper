@@ -41,11 +41,19 @@ void SolidKnob::paint (Graphics& g)
     }
     else
     {
+        if (showValueAlways)
+        {
+            auto valueArea = bounds.removeFromBottom (13.0f);
+            g.setFont (CustomLookAndFeel::uiFont (11.0f, true));
+            g.setColour (SolidColours::blue.withMultipliedAlpha (isEnabled() ? 1.0f : 0.5f));
+            g.drawText (valueText(), valueArea, Justification::centred);
+        }
+
         auto labelArea = bounds.removeFromBottom (14.0f);
         const float side = std::min (bounds.getWidth(), bounds.getHeight());
         knobArea = bounds.withSizeKeepingCentre (side, side);
 
-        if ((hovering || dragging) && isEnabled())
+        if ((hovering || dragging) && isEnabled() && ! showValueAlways)
         {
             g.setFont (CustomLookAndFeel::uiFont (11.0f, true));
             g.setColour (SolidColours::blue);
@@ -259,6 +267,15 @@ void BarMeter::setCeilingDb (float db)
     }
 }
 
+void BarMeter::setLabel (const String& newLabel)
+{
+    if (newLabel != label)
+    {
+        label = newLabel;
+        repaint();
+    }
+}
+
 void BarMeter::setDimmed (bool shouldDim)
 {
     if (dimmed != shouldDim)
@@ -329,6 +346,125 @@ void BarMeter::paint (Graphics& g)
 }
 
 //==============================================================================
+// TransferCurve
+//==============================================================================
+namespace
+{
+    constexpr float kCurveMinDb = -24.0f, kCurveMaxDb = 6.0f;
+}
+
+void TransferCurve::setCurve (float ceilingDb, float kneeDb)
+{
+    if (std::abs (ceilingDb - ceiling) > 0.001f || std::abs (kneeDb - knee) > 0.001f)
+    {
+        ceiling = ceilingDb;
+        knee = kneeDb;
+        repaint();
+    }
+}
+
+void TransferCurve::setCaption (const String& text)
+{
+    if (text != caption)
+    {
+        caption = text;
+        repaint();
+    }
+}
+
+void TransferCurve::setInputPeak (float linearPeak, float dt)
+{
+    const float db = Decibels::gainToDecibels (linearPeak, -100.0f);
+    const float next = db >= peakDb ? db : std::max (db, peakDb - 30.0f * dt);
+    if (std::abs (next - peakDb) > 0.05f)
+    {
+        peakDb = next;
+        repaint();
+    }
+}
+
+void TransferCurve::paint (Graphics& g)
+{
+    auto b = getLocalBounds().toFloat();
+    CustomLookAndFeel::drawInsetBox (g, b, 3.0f);
+    auto plot = b.reduced (8.0f).withTrimmedBottom (12.0f).withTrimmedLeft (16.0f);
+
+    auto xFor = [&] (float db) { return plot.getX() + plot.getWidth() * (db - kCurveMinDb) / (kCurveMaxDb - kCurveMinDb); };
+    auto yFor = [&] (float db) { return plot.getBottom() - plot.getHeight() * (db - kCurveMinDb) / (kCurveMaxDb - kCurveMinDb); };
+
+    // grid every 6 dB
+    g.setFont (CustomLookAndFeel::uiFont (8.5f, true));
+    for (float db = kCurveMinDb; db <= kCurveMaxDb + 0.01f; db += 6.0f)
+    {
+        g.setColour (Colours::white.withAlpha (std::abs (db) < 0.01f ? 0.16f : 0.06f));
+        g.drawVerticalLine ((int) xFor (db), plot.getY(), plot.getBottom());
+        g.drawHorizontalLine ((int) yFor (db), plot.getX(), plot.getRight());
+        g.setColour (SolidColours::labelText.withAlpha (0.6f));
+        g.drawText (String ((int) db), Rectangle<float> (xFor (db) - 12.0f, plot.getBottom() + 1.0f, 24.0f, 10.0f), Justification::centred);
+        g.drawText (String ((int) db), Rectangle<float> (b.getX() + 2.0f, yFor (db) - 5.0f, 20.0f, 10.0f), Justification::centredLeft);
+    }
+
+    const float c = ceiling, t = ceiling - knee;
+
+    // knee region
+    if (knee > 0.0f)
+    {
+        g.setColour (SolidColours::blue.withAlpha (0.10f));
+        g.fillRect (Rectangle<float>::leftTopRightBottom (xFor (t), plot.getY(), xFor (c), plot.getBottom()));
+        g.setColour (SolidColours::blue.withAlpha (0.45f));
+        const float dashes[] = { 3.0f, 3.0f };
+        g.drawDashedLine ({ xFor (t), plot.getY(), xFor (t), plot.getBottom() }, dashes, 2, 1.0f);
+        g.drawText ("KNEE", Rectangle<float> (xFor (t) + 2.0f, plot.getBottom() - 12.0f, 40.0f, 10.0f), Justification::centredLeft);
+    }
+
+    // unity (no change) reference
+    g.setColour (Colours::white.withAlpha (0.18f));
+    const float dashes[] = { 2.0f, 3.0f };
+    g.drawDashedLine ({ xFor (kCurveMinDb), yFor (kCurveMinDb), xFor (kCurveMaxDb), yFor (kCurveMaxDb) }, dashes, 2, 1.0f);
+
+    // ceiling
+    g.setColour (SolidColours::red.withAlpha (0.55f));
+    g.drawHorizontalLine ((int) yFor (c), plot.getX(), plot.getRight());
+    g.drawText ("CEILING", Rectangle<float> (plot.getX() + 2.0f, yFor (c) + 2.0f, 60.0f, 10.0f), Justification::centredLeft);
+
+    // the curve itself (same maths as the DSP)
+    const float cLin = Decibels::decibelsToGain (c), tLin = Decibels::decibelsToGain (t), k = cLin - tLin;
+    auto outDb = [&] (float inDb)
+    {
+        const float d = Decibels::decibelsToGain (inDb);
+        const float y = d <= tLin ? d : (k <= 0.0f ? cLin : tLin + k * std::tanh ((d - tLin) / k));
+        return Decibels::gainToDecibels (y, -100.0f);
+    };
+
+    Path curve;
+    for (int i = 0; i <= 120; ++i)
+    {
+        const float inDb = kCurveMinDb + (kCurveMaxDb - kCurveMinDb) * (float) i / 120.0f;
+        const Point<float> p { xFor (inDb), yFor (outDb (inDb)) };
+        if (i == 0) curve.startNewSubPath (p); else curve.lineTo (p);
+    }
+    g.setColour (SolidColours::blueGlow.withAlpha (0.3f));
+    g.strokePath (curve, PathStrokeType (5.0f, PathStrokeType::curved, PathStrokeType::rounded));
+    g.setColour (SolidColours::blue);
+    g.strokePath (curve, PathStrokeType (2.0f, PathStrokeType::curved, PathStrokeType::rounded));
+
+    // live input peak
+    if (peakDb > kCurveMinDb)
+    {
+        const float inDb = std::min (peakDb, kCurveMaxDb);
+        const Point<float> p { xFor (inDb), yFor (outDb (inDb)) };
+        g.setColour (Colours::white.withAlpha (0.35f));
+        g.fillEllipse (Rectangle<float> (10.0f, 10.0f).withCentre (p));
+        g.setColour (Colours::white);
+        g.fillEllipse (Rectangle<float> (5.0f, 5.0f).withCentre (p));
+    }
+
+    g.setFont (CustomLookAndFeel::uiFont (10.0f, true));
+    g.setColour (SolidColours::labelText);
+    g.drawText (caption, plot.reduced (4.0f, 2.0f).removeFromTop (12.0f), Justification::centredLeft);
+}
+
+//==============================================================================
 // Help
 //==============================================================================
 void HelpButton::paintButton (Graphics& g, bool isHighlighted, bool isDown)
@@ -355,11 +491,11 @@ void HelpOverlay::paint (Graphics& g)
 
     const char* lines[] =
     {
-        "LINKED CLIPPING:  one gain for both channels, so L/R (or M/S) ratios never change - no added stereo distortion.",
-        "CEILING / KNEE:  output ceiling, and how far below it the soft knee starts. Below the knee nothing is touched.",
+        "MODE:  STEREO clips L and R. MID clips only the mid (sides untouched). SIDE clips only the sides (mid untouched).",
+        "L/R LINK (Stereo):  on = the same gain on L and R, so the stereo image never changes. Off = each side clipped on its own.",
+        "CEILING:  the level nothing gets above.  KNEE:  how gently clipping starts - 0 dB = hard clip, more = softer.",
         "SHAPE:  0 % = pure clipper. Higher = gain smoothed over up to 3 ms with matching lookahead (clipper/limiter hybrid).",
-        "MODE:  Stereo (L/R linked), Mid/Side, or Stereo + M/S in series. Stage buttons switch the serial stages.",
-        "M/S LINK:  100 % = one shared gain for Mid and Side. Lower values clip Side on its own - audible side distortion.",
+        "IN/OUT LINK:  turning Input up turns Output down by the same amount, so you hear more clipping, not more level.",
         "OVERSAMPLING:  detection + gain at up to 16x to catch inter-sample peaks. Linear phase is bit-transparent below the knee.",
         "TP GUARD:  catches the small true-peak overshoots left by the down-sampling filter, so the ceiling holds solid.",
         "DELTA:  listen to exactly what is removed (dry - wet, latency aligned).",

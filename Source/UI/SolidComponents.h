@@ -27,6 +27,7 @@ public:
     std::function<juce::String (double)> describeValue;   // real units
     juce::String extraTooltip;                            // appended to the tooltip
     juce::String inactiveHint;                            // shown in the tooltip while disabled
+    bool showValueAlways = false;                         // small knobs: value line under the label
 
     juce::String getTooltip() override;
     void paint (juce::Graphics&) override;
@@ -92,6 +93,7 @@ public:
     void push (float value, float deltaSeconds);
     void setCeilingDb (float db);
     void setDimmed (bool shouldDim);
+    void setLabel (const juce::String&);
     void paint (juce::Graphics&) override;
 
 private:
@@ -101,6 +103,25 @@ private:
     juce::String label;
     float currentDb = -100.0f, holdDb = -100.0f, holdTime = 0.0f, ceilingDb = 0.0f;
     bool dimmed = false;
+};
+
+//==============================================================================
+/**
+    Input -> output transfer curve in dB. Shows what Ceiling and Knee do: the curve is
+    a straight line (untouched) up to the knee start, bends through the shaded knee and
+    flattens out at the ceiling. A dot tracks the current input peak.
+*/
+class TransferCurve : public juce::Component
+{
+public:
+    void setCurve (float ceilingDb, float kneeDb);
+    void setCaption (const juce::String&);
+    void setInputPeak (float linearPeak, float deltaSeconds);
+    void paint (juce::Graphics&) override;
+
+private:
+    float ceiling = -0.3f, knee = 3.0f, peakDb = -100.0f;
+    juce::String caption;
 };
 
 //==============================================================================
