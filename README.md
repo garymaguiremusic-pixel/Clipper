@@ -101,7 +101,7 @@ input gain ─► up-sample ─► clipper (Stereo / Mid / Side) ─► down-sam
 
 **True-Peak Guard.** Clipping at the oversampled rate creates harmonics above Nyquist, and the down-sampling filter removes them. That leaves small overshoots (up to about 2 dB on brutal material). The guard looks ahead at the down-sampled signal's 4x true peak, using the **ITU-R BS.1770-4** interpolator. It applies a long, gentle dip (6 ms) only where the ceiling would be exceeded, on the same signals as the mode (L/R linked or not, mid or side). Elsewhere its gain is exactly 1.0.
 
-**Latency.** Latency = oversampling filters (padded to whole samples) + 3 ms lookahead (only while Shape > 0) + the guard's ~6 ms. At 44.1 kHz / 8x / IIR that is 415 samples (9.4 ms). With Shape = 0 it is 47 samples. The value is reported with `setLatencySamples` and updated whenever oversampling, filter or lookahead changes. Those changes do a quick fade-out → switch → fade-in so they don't click.
+**Latency.** Latency = oversampling filters (padded to whole samples) + 3 ms lookahead (only while Shape > 0) + the guard's ~6 ms. At 44.1 kHz / 8x / IIR that is 415 samples (9.4 ms). With Shape = 0 (no lookahead) it is 283 samples (6.4 ms). The value is reported with `setLatencySamples` and updated whenever oversampling, filter or lookahead changes. Those changes do a quick fade-out → switch → fade-in so they don't click.
 
 **Real-time safety.** Everything, including all 10 oversampler variants up to 16x, is allocated in `prepareToPlay`. `processBlock` has no allocations, locks or logging, handles any block size (processed internally in chunks of 256 or fewer), and uses `ScopedNoDenormals`. Meter values reach the UI through atomics.
 
