@@ -225,7 +225,14 @@ namespace
 
 BarMeter::BarMeter (Kind k, const String& labelText) : kind (k), label (labelText)
 {
-    setInterceptsMouseClicks (false, false);
+    setTooltip ("Double-click to reset all meters");
+}
+
+void BarMeter::reset()
+{
+    currentDb = holdDb = kind == Kind::Level ? -100.0f : 0.0f;
+    holdTime = 0.0f;
+    repaint();
 }
 
 float BarMeter::toProportion (float db) const noexcept
@@ -351,6 +358,12 @@ void BarMeter::paint (Graphics& g)
 namespace
 {
     constexpr float kCurveMinDb = -24.0f, kCurveMaxDb = 6.0f;
+}
+
+void TransferCurve::reset()
+{
+    peakDb = -100.0f;
+    repaint();
 }
 
 void TransferCurve::setCurve (float ceilingDb, float kneeDb)
@@ -499,7 +512,7 @@ void HelpOverlay::paint (Graphics& g)
         "OVERSAMPLING:  detection + gain at up to 16x to catch inter-sample peaks. Linear phase is bit-transparent below the knee.",
         "TP GUARD:  catches the small true-peak overshoots left by the down-sampling filter, so the ceiling holds solid.",
         "DELTA:  listen to exactly what is removed (dry - wet, latency aligned).",
-        "Knobs: drag, shift-drag = fine, scroll wheel, double-click = default. Hover for values. Drag the corner to resize.",
+        "Knobs: drag, shift-drag = fine, scroll wheel, double-click = default. Double-click a meter to reset them all.",
         "",
         "Click anywhere to close."
     };

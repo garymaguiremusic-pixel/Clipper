@@ -33,6 +33,7 @@ private:
     static void setActive (juce::Component&, bool active);
     float raw (const char* id) const;
     void setMode (int index);
+    void resetMeters();
 
     SolidClipAudioProcessor& processor;
     juce::Image background;

@@ -81,6 +81,11 @@ SolidClipView::SolidClipView (SolidClipAudioProcessor& p)
                           (Component*) &grMeter1, (Component*) &grMeter2, (Component*) &guardGr })
         addAndMakeVisible (*c);
 
+    for (BarMeter* meter : { &inMeter, &outMeter, &grMeter1, &grMeter2, &guardGr })
+        meter->onDoubleClick = [this] { resetMeters(); };
+    transferCurve.onDoubleClick = [this] { resetMeters(); };
+    transferCurve.setTooltip ("Ceiling and Knee as an input -> output curve. Double-click to reset the meters");
+
     helpButton.setTooltip ("Help");
     helpButton.onClick = [this] { helpOverlay.setVisible (true); helpOverlay.toFront (false); };
     addAndMakeVisible (helpButton);
@@ -118,6 +123,17 @@ void SolidClipView::setMode (int index)
     param->beginChangeGesture();
     param->setValueNotifyingHost (param->convertTo0to1 ((float) index));
     param->endChangeGesture();
+}
+
+void SolidClipView::resetMeters()
+{
+    // drop whatever the audio thread collected so far, then clear the holds
+    auto& m = processor.getMeters();
+    for (auto* a : { &m.inputPeak, &m.outputPeak, &m.leftGrDb, &m.rightGrDb, &m.midGrDb, &m.sideGrDb, &m.guardGrDb })
+        a->store (0.0f);
+    for (BarMeter* meter : { &inMeter, &outMeter, &grMeter1, &grMeter2, &guardGr })
+        meter->reset();
+    transferCurve.reset();
 }
 
 //==============================================================================

@@ -61,21 +61,21 @@ cmake --build build && ctest --test-dir build --output-on-failure
 
 | Parameter | Range | Default | What it does |
 |---|---|---|---|
-| **Input** | −12 … +24 dB | 0 dB | Drive into the clipper. With **Link** on, the Output knob moves the opposite way. |
+| **Input** | −24 … +24 dB | 0 dB (12 o'clock) | Drive into the clipper. With **Link** on, the Output knob moves the opposite way. |
 | **Ceiling** | −12 … 0 dBFS | −0.3 | The level nothing gets above: L and R in Stereo mode, the mid in Mid mode, the side in Side mode. |
 | **Knee** | 0 … 12 dB | 3 dB | How gently clipping starts. 0 dB = hard clip, flat right up to the ceiling. 3 dB = the curve starts bending 3 dB below the ceiling, which is smoother with fewer harsh harmonics. Below *ceiling − knee* the audio is **untouched** (gain exactly 1.0). The Transfer Curve display shows it. |
 | **Shape** | 0 … 100 % | 30 % | 0 % = instantaneous gain (pure clipper). Higher values smooth the gain envelope over up to 3 ms, with matching lookahead (clipper/limiter hybrid). |
-| **Oversampling** | 1x / 2x / 4x / 8x / 16x | 4x | Rate at which detection and gain are computed, so inter-sample peaks are caught. |
+| **Oversampling** | 1x / 2x / 4x / 8x / 16x | 8x | Rate at which detection and gain are computed, so inter-sample peaks are caught. |
 | **Filter** | Min Phase IIR / Linear Phase FIR | IIR | IIR = low latency. FIR = linear phase, and the output is **bit-identical** to the input below the knee. |
 | **Mode** | Stereo / Mid / Side | Stereo | What gets clipped. See below. |
 | **L/R Link** | on/off | on | Stereo mode: on = the same gain on L and R, so the stereo image never changes. Off = L and R are clipped independently. |
-| **Output** | −24 … +12 dB | 0 dB | Gain after clipping. Raising it moves the output above the ceiling. |
+| **Output** | −24 … +24 dB | 0 dB (12 o'clock) | Gain after clipping. Raising it moves the output above the ceiling. |
 | **Link** (In/Out) | on/off | on | Links the knobs: turning Input up by 3 dB turns the **Output knob** down by 3 dB, so driving harder clips more but **doesn't change the level**. Bypass and Delta stay level-matched. It also follows host automation of Input. You can still move Output on its own as a trim. |
 | **Delta** | on/off | off | Outputs *dry − wet*, latency aligned: exactly what is being removed. |
 | **TP Guard** | on/off | on | True-peak guard (see below). |
 | **Bypass** | on/off | off | Latency-compensated bypass. This is also the host's bypass parameter. |
 
-All continuous parameters are smoothed, and stage, mode, delta and bypass changes crossfade over about 10 ms. Every knob supports drag, shift-drag (fine), the scroll wheel and double-click to reset, and shows its value on hover.
+All continuous parameters are smoothed, and stage, mode, delta and bypass changes crossfade over about 10 ms. Every knob supports drag, shift-drag (fine), the scroll wheel and double-click to reset, and shows its value on hover. **Double-click any meter (or the curve display) to reset all the meters and peak holds.**
 
 ## Modes
 
@@ -99,11 +99,27 @@ input gain ─► up-sample ─► clipper (Stereo / Mid / Side) ─► down-sam
 
 **Bit-transparency (Linear Phase FIR, and 1x).** Only the *removed* part of the signal (clipped − unclipped) goes through the oversampler. The dry signal is just delayed by exactly the reported latency. When nothing is clipped, the removed part is exactly zero, so the output nulls bit-for-bit against the latency-aligned input. Min-phase IIR filters shift the phase of the whole band, so that path can't be bit-exact by design. In IIR mode the full signal is oversampled, and the result is transparent in level but phase-shifted at high frequencies.
 
-**True-Peak Guard.** Clipping at the oversampled rate creates harmonics above Nyquist, and the down-sampling filter removes them. That leaves small overshoots (up to about 2 dB on brutal material). The guard looks ahead at the down-sampled signal's 4x true peak, using the **ITU-R BS.1770-4** interpolator. It applies a short, smooth dip (about 0.7 ms) only where the ceiling would be exceeded, on the same signals as the mode (L/R linked or not, mid or side). Elsewhere its gain is exactly 1.0.
+**True-Peak Guard.** Clipping at the oversampled rate creates harmonics above Nyquist, and the down-sampling filter removes them. That leaves small overshoots (up to about 2 dB on brutal material). The guard looks ahead at the down-sampled signal's 4x true peak, using the **ITU-R BS.1770-4** interpolator. It applies a long, gentle dip (6 ms) only where the ceiling would be exceeded, on the same signals as the mode (L/R linked or not, mid or side). Elsewhere its gain is exactly 1.0.
 
-**Latency.** Latency = oversampling filters (padded to whole samples) + 3 ms lookahead (only while Shape > 0) + the guard's ~1 ms. At 44.1 kHz / 4x / IIR that is 179 samples (4.1 ms). With Shape = 0 it is 47 samples. The value is reported with `setLatencySamples` and updated whenever oversampling, filter or lookahead changes. Those changes do a quick fade-out → switch → fade-in so they don't click.
+**Latency.** Latency = oversampling filters (padded to whole samples) + 3 ms lookahead (only while Shape > 0) + the guard's ~6 ms. At 44.1 kHz / 8x / IIR that is 415 samples (9.4 ms). With Shape = 0 it is 47 samples. The value is reported with `setLatencySamples` and updated whenever oversampling, filter or lookahead changes. Those changes do a quick fade-out → switch → fade-in so they don't click.
 
 **Real-time safety.** Everything, including all 10 oversampler variants up to 16x, is allocated in `prepareToPlay`. `processBlock` has no allocations, locks or logging, handles any block size (processed internally in chunks of 256 or fewer), and uses `ScopedNoDenormals`. Meter values reach the UI through atomics.
+
+## How clean is it?
+
+`SolidClipTests --measure` clips a sine 6 dB over the ceiling, FFTs the output (Kaiser window) and measures every in-band component that is **not** a true harmonic of the tone, i.e. aliasing and modulation products. Numbers are the worst single spur below the tone, Knee 3 dB, 44.1 kHz:
+
+| | 5 kHz tone, Shape 0 / 30 % | 10 kHz tone, Shape 0 / 30 % |
+|---|---|---|
+| 4x IIR | −77 / −92 dB | −52 / −101 dB |
+| **8x IIR (default)** | −94 / **−108 dB** | −83 / **−114 dB** |
+| 16x FIR | −117 / −111 dB | −106 / −115 dB |
+
+Two measured changes got it there:
+- **Oversampling filters** were rebuilt with a 100 dB stopband in every stage. JUCE's own "max quality" preset stops at 75 dB in the stage that matters most.
+- **The True-Peak Guard dip** was lengthened from 0.7 ms to 6 ms. The short dip caused modulation spurs around −78 dB; the 6 ms dip is as clean as no guard at all, and the ceiling still holds to +0.000 dB (BS.1770).
+
+Hard clipping (Knee 0, Shape 0) stays the dirtiest setting by nature. For the cleanest result use Shape 20–60 % and 8x or 16x.
 
 ## Source layout
 
@@ -130,7 +146,7 @@ Tests/SolidClipTests.cpp
 `SolidClipTests` (run by `ctest`) drives the real processor with irregular block sizes and checks the following (415 checks):
 
 - **Bit-exact null** below *ceiling − knee*, latency aligned. Covers all modes, Shape 0 / 50 %, 1x, and Linear Phase at 2x–16x.
-- **Ceiling holds**: sample peak ≤ ceiling, and BS.1770 4x true peak ≤ ceiling + 0.01 dB. Signals are sine sweeps, white noise and drum hits at +12 dB, across all oversampling factors and filters (measured worst case: +0.003 dB). In Mid / Side mode the clipped part is measured.
+- **Ceiling holds**: sample peak ≤ ceiling, and BS.1770 4x true peak ≤ ceiling + 0.01 dB. Signals are sine sweeps, white noise and drum hits at +12 dB, across all oversampling factors and filters (measured worst case: +0.000 dB). In Mid / Side mode the clipped part is measured.
 - **Linking**: L = R gives a side output of exactly zero at every factor and filter, and the L/R ratio is unchanged on every sample.
 - **Mid / Side modes**: only the chosen part is reduced, and the other part is unchanged against the same path with nothing clipped. **L/R Link off**: the left output doesn't depend on the right input at all.
 - **Latency**: reported = measured for every oversampling × filter × lookahead combination, at 44.1 and 96 kHz.
@@ -138,4 +154,4 @@ Tests/SolidClipTests.cpp
 - **Mode switching**: no latency change and no clicks.
 - **Unit tests** of the gain smoother (never above the required gain, returns to exactly 1.0) and of the stages at the oversampled rate.
 
-It also prints a CPU benchmark. `SolidClipTests --snapshot ui.png [width] [mode]` renders the editor to a PNG.
+It also prints a CPU benchmark. `SolidClipTests --measure` runs the aliasing analyser (set `SC_GUARD_OFF=1` to measure without the guard). `SolidClipTests --snapshot ui.png [width] [mode]` renders the editor to a PNG.

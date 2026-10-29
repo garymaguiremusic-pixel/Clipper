@@ -51,15 +51,15 @@ namespace sc
             params.push_back (std::make_unique<AudioParameterChoice> (ParameterID { id, 1 }, name, items, def));
         };
 
-        addFloat (ParamIDs::inputGain,   "Input Gain",   -12.0f, 24.0f,  0.0f, 0.01f, formatDb, "dB");
+        addFloat (ParamIDs::inputGain,   "Input Gain",   -24.0f, 24.0f,  0.0f, 0.01f, formatDb, "dB");
         addFloat (ParamIDs::ceiling,     "Ceiling",      -12.0f,  0.0f, -0.3f, 0.01f, formatDb, "dB");
         addFloat (ParamIDs::knee,        "Knee",           0.0f, 12.0f,  3.0f, 0.01f, formatDb, "dB");
         addFloat (ParamIDs::shape,       "Shape",          0.0f, 100.0f, 30.0f, 0.1f, formatPercent, "%");
-        addChoice (ParamIDs::oversampling, "Oversampling", getOversamplingNames(), 2);
+        addChoice (ParamIDs::oversampling, "Oversampling", getOversamplingNames(), 3);
         addChoice (ParamIDs::filterType,   "Filter Type",  getFilterNames(), 0);
         addChoice (ParamIDs::mode,         "Mode",         getModeNames(), 0);
         addBool (ParamIDs::lrLink,       "L/R Link",     true);
-        addFloat (ParamIDs::outputGain,  "Output Gain",  -24.0f, 12.0f, 0.0f, 0.01f, formatDb, "dB");
+        addFloat (ParamIDs::outputGain,  "Output Gain",  -24.0f, 24.0f, 0.0f, 0.01f, formatDb, "dB");
         addBool (ParamIDs::gainLink,     "In/Out Link",  true);
         addBool (ParamIDs::delta,        "Delta",        false);
         addBool (ParamIDs::guard,        "True Peak Guard", true);

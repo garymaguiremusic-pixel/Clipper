@@ -18,7 +18,7 @@ namespace solidclip
         float inputGainDb = 0.0f, outputGainDb = 0.0f;
         float ceilingDb = -0.3f, kneeDb = 3.0f;
         float shape = 0.3f;                     // 0..1
-        int oversamplingIndex = 2;              // 0..4 -> 1x..16x
+        int oversamplingIndex = 3;              // 0..4 -> 1x..16x
         FilterType filter = FilterType::MinPhaseIIR;
         Mode mode = Mode::Stereo;
         bool lrLink = true;                     // Stereo: same gain on L and R

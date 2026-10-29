@@ -82,7 +82,8 @@ private:
     Horizontal bar meter with peak hold. Level meters show dBFS (blue) with a ceiling
     marker; gain-reduction meters grow from the left in red.
 */
-class BarMeter : public juce::Component
+class BarMeter : public juce::Component,
+                 public juce::SettableTooltipClient
 {
 public:
     enum class Kind { Level, GainReduction };
@@ -94,6 +95,9 @@ public:
     void setCeilingDb (float db);
     void setDimmed (bool shouldDim);
     void setLabel (const juce::String&);
+    void reset();
+    std::function<void()> onDoubleClick;
+    void mouseDoubleClick (const juce::MouseEvent&) override { if (onDoubleClick) onDoubleClick(); }
     void paint (juce::Graphics&) override;
 
 private:
@@ -111,9 +115,13 @@ private:
     a straight line (untouched) up to the knee start, bends through the shaded knee and
     flattens out at the ceiling. A dot tracks the current input peak.
 */
-class TransferCurve : public juce::Component
+class TransferCurve : public juce::Component,
+                      public juce::SettableTooltipClient
 {
 public:
+    void reset();
+    std::function<void()> onDoubleClick;
+    void mouseDoubleClick (const juce::MouseEvent&) override { if (onDoubleClick) onDoubleClick(); }
     void setCurve (float ceilingDb, float kneeDb);
     void setCaption (const juce::String&);
     void setInputPeak (float linearPeak, float deltaSeconds);

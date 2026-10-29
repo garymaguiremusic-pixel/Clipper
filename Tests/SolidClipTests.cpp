@@ -677,6 +677,104 @@ namespace
                 }
     }
 
+    /**
+        Cleanliness analyser: clips a sine and measures, with a Kaiser-windowed FFT, every
+        in-band component that is not a true harmonic of it (= aliasing + noise).
+        Returns { worst spur dBc, total spurious power dBc }.
+    */
+    std::pair<double, double> measureAliasing (Rig& rig, double freq, float overDb)
+    {
+        constexpr int order = 16, size = 1 << order;
+        const double fs = rig.sampleRate;
+        const float amp = solidclip::dbToGain (-0.3f + overDb);
+        const int lat = rig.latency();
+        const size_t total = (size_t) (size + lat + 8192);
+
+        Signal l (total), r (total);
+        for (size_t i = 0; i < total; ++i)
+            l[i] = r[i] = amp * (float) std::sin (2.0 * juce::MathConstants<double>::pi * freq * (double) i / fs);
+        rig.run (l, r);
+
+        // Kaiser window (beta 20: side lobes far below -140 dB)
+        std::vector<double> win ((size_t) size);
+        auto i0 = [] (double x) { double sum = 1, t = 1; for (int k = 1; k < 80; ++k) { t *= (x / (2 * k)) * (x / (2 * k)); sum += t; } return sum; };
+        for (int i = 0; i < size; ++i)
+        {
+            const double w = 2.0 * i / (size - 1) - 1.0;
+            win[(size_t) i] = i0 (20.0 * std::sqrt (std::max (0.0, 1.0 - w * w))) / i0 (20.0);
+        }
+
+        juce::dsp::FFT fft (order);
+        std::vector<float> data ((size_t) size * 2, 0.0f);
+        const size_t start = (size_t) lat + 8192;
+        for (int i = 0; i < size; ++i)
+            data[(size_t) i] = (float) (l[start + (size_t) i] * win[(size_t) i]);
+        fft.performFrequencyOnlyForwardTransform (data.data(), true);
+
+        const double binHz = fs / size;
+        auto power = [&] (int bin) { return (double) data[(size_t) bin] * data[(size_t) bin]; };
+        const int guard = 14;   // Kaiser 20 main lobe half-width in bins (with margin)
+
+        const int fundamental = (int) std::lround (freq / binHz);
+        double fundPower = 0.0;
+        for (int b = fundamental - guard; b <= fundamental + guard; ++b) fundPower += power (b);
+
+        std::vector<bool> isHarmonic ((size_t) size / 2, false);
+        for (int k = 1; k * freq < fs * 0.5; ++k)
+        {
+            const int c = (int) std::lround (k * freq / binHz);
+            for (int b = std::max (0, c - guard); b <= std::min (size / 2 - 1, c + guard); ++b) isHarmonic[(size_t) b] = true;
+        }
+
+        double worst = 0.0, spurious = 0.0;
+        const int lo = (int) (20.0 / binHz), hi = std::min (size / 2 - 1, (int) (20000.0 / binHz));
+        for (int b = lo; b <= hi; ++b)
+        {
+            if (isHarmonic[(size_t) b]) continue;
+            // a spur's energy spreads over the main lobe: sum a lobe around local peaks
+            spurious += power (b);
+            worst = std::max (worst, power (b));
+        }
+        // window main-lobe energy: compare peak bin to peak bin
+        double fundPeak = 0.0;
+        for (int b = fundamental - 2; b <= fundamental + 2; ++b) fundPeak = std::max (fundPeak, power (b));
+        return { 10.0 * std::log10 (std::max (worst, 1e-30) / fundPeak), 10.0 * std::log10 (std::max (spurious, 1e-30) / fundPower) };
+    }
+
+    int measureCleanliness()
+    {
+        std::printf ("Aliasing analyser: sine clipped 6 dB over the ceiling, Stereo mode, 44.1 kHz\n");
+        std::printf ("  worst = largest single non-harmonic spur, total = all non-harmonic energy (dB below the tone)\n\n");
+        std::printf ("  %-5s %-4s %-6s %-6s | %-22s | %-22s\n", "OS", "filt", "knee", "shape", "4987 Hz: worst / total", "9973 Hz: worst / total");
+        for (int os = 0; os < 5; ++os)
+            for (int filter = 0; filter < 2; ++filter)
+            {
+                if (os == 0 && filter == 1) continue;
+                for (float knee : { 0.0f, 3.0f })
+                    for (float shape : { 0.0f, 30.0f })
+                    {
+                        double res[4];
+                        int k = 0;
+                        for (double f : { 4987.0, 9973.0 })
+                        {
+                            Rig rig;
+                            rig.set (ids::oversampling, (float) os);
+                            rig.set (ids::filterType, (float) filter);
+                            rig.set (ids::knee, knee);
+                            rig.set (ids::shape, shape);
+                            if (std::getenv ("SC_GUARD_OFF") != nullptr) rig.set (ids::guard, 0.0f);
+                            rig.prepare();
+                            const auto [w, t] = measureAliasing (rig, f, 6.0f);
+                            res[k++] = w;
+                            res[k++] = t;
+                        }
+                        std::printf ("  %-5s %-4s %-6.0f %-6.0f | %8.1f / %8.1f dB | %8.1f / %8.1f dB\n",
+                                     osName (os), filterName (filter), knee, shape, res[0], res[1], res[2], res[3]);
+                    }
+            }
+        return 0;
+    }
+
     /** Renders the editor at a given width to a PNG (used to check the GUI and resizing). */
     int snapshot (const juce::File& file, int width, int mode)
     {
@@ -711,6 +809,9 @@ namespace
 int main (int argc, char** argv)
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
+
+    if (argc >= 2 && juce::String (argv[1]) == "--measure")
+        return measureCleanliness();
 
     if (argc >= 3 && juce::String (argv[1]) == "--snapshot")
         return snapshot (juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]), argc >= 4 ? std::atoi (argv[3]) : SolidClipView::kWidth,

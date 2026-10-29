@@ -79,7 +79,7 @@ namespace solidclip
         Final safety stage at the host rate. Oversampled clipping is followed by the
         down-sampling filter, which removes the clipped harmonics above Nyquist and can
         leave small overshoots. This stage looks ahead at the true peaks of the
-        down-sampled signal and applies a short, smooth gain dip only where they would
+        down-sampled signal and applies a smooth 6 ms gain dip only where they would
         exceed the ceiling. It works on the same signals as the mode (L/R, Mid or Side), so
         in Mid mode it never touches the sides and vice versa. Where nothing exceeds the
         ceiling, the gain is exactly 1.0.
@@ -89,7 +89,9 @@ namespace solidclip
     public:
         void prepare (double sampleRate)
         {
-            box = std::max (1, (int) std::lround (sampleRate * 0.0007));
+            // A long, gentle dip: measured, 6 ms keeps the guard's own modulation products
+            // below -105 dB (0.7 ms left spurs around -78 dB).
+            box = std::max (1, (int) std::lround (sampleRate * 0.006));
             const int k = Detector::span;
             smootherDelay = k + box - 1;
             smoother.prepare (smootherDelay, box + 2 * k);

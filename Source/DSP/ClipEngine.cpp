@@ -6,6 +6,7 @@ namespace solidclip
     {
         constexpr int kMaxChunk = 256;   // internal block size; keeps config switches short
         constexpr int kMaxFactorShift = 4;
+        constexpr float kFilterStopbandDb = -100.0f;
 
         float mix (float a, float b, float amount) noexcept
         {
@@ -62,9 +63,15 @@ namespace solidclip
                 // IIR (full-signal path) also carries the reference through the filters
                 const size_t channels = (iir && f > 0) ? 4 : 2;
                 auto& o = oversamplers[(size_t) (f * 2 + t)];
-                o = std::make_unique<OS> (channels, (size_t) f,
-                                          iir ? OS::filterHalfBandPolyphaseIIR : OS::filterHalfBandFIREquiripple,
-                                          true, false);
+                // Stricter than JUCE's "max quality" preset (whose first down-sampling stage
+                // stops at -75 dB): every stage rejects images and aliases by 100 dB.
+                const auto type = iir ? OS::filterHalfBandPolyphaseIIR : OS::filterHalfBandFIREquiripple;
+                o = std::make_unique<OS> (channels);
+                if (f == 0)
+                    o->addDummyOversamplingStage();
+                for (int n = 0; n < f; ++n)
+                    o->addOversamplingStage (type, n == 0 ? 0.05f : 0.10f, kFilterStopbandDb,
+                                                   n == 0 ? 0.06f : 0.12f, kFilterStopbandDb);
                 o->initProcessing ((size_t) maxBlock);
             }
         }
