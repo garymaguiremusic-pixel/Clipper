@@ -14,14 +14,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Uses the newest Visual Studio installed on the runner.
       - name: Configure (VST3 only)
-        run: cmake -B build -G "Visual Studio 17 2022" -A x64 -DSOLIDCLIP_BUILD_STANDALONE=OFF
+        shell: bash
+        run: |
+          mkdir -p logs
+          cmake -B build -A x64 -DSOLIDCLIP_BUILD_STANDALONE=OFF 2>&1 | tee logs/configure.log
+          exit ${PIPESTATUS[0]}
 
       - name: Build
-        run: cmake --build build --config Release --parallel
+        shell: bash
+        run: |
+          cmake --build build --config Release --parallel 2>&1 | tee logs/build.log
+          exit ${PIPESTATUS[0]}
 
       - name: Test
-        run: ctest --test-dir build -C Release --output-on-failure
+        shell: bash
+        run: |
+          ctest --test-dir build -C Release --output-on-failure 2>&1 | tee logs/test.log
+          exit ${PIPESTATUS[0]}
 
       - name: Package
         shell: pwsh
@@ -41,3 +52,16 @@ jobs:
           gh release create windows-latest SolidClip-Windows-x64-VST3.zip \
             --target "$GITHUB_SHA" --prerelease --title "SolidClip - Windows x64 VST3 (latest build)" \
             --notes "Built from $GITHUB_SHA. Unzip and copy SolidClip.vst3 to C:\Program Files\Common Files\VST3."
+
+      # The logs are also published as a release so they can be read without Actions access.
+      - name: Publish logs on failure
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p logs && cd logs && (ls *.log >/dev/null 2>&1 || echo "no logs" > none.log)
+          tail -c 200000 build.log > build-tail.log 2>/dev/null || true
+          gh release delete windows-build-log --cleanup-tag --yes || true
+          gh release create windows-build-log *.log --target "$GITHUB_SHA" --prerelease \
+            --title "Windows build log (failed run)" --notes "Logs from the failed run on $GITHUB_SHA"
