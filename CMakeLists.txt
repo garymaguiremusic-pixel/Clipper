@@ -6,6 +6,9 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
+# Windows: link the C/C++ runtime statically so the plugin loads without the VC++ redistributable.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 # ------------------------------------------------------------------------------
 # Options
 option(SOLIDCLIP_BUILD_AU         "Also build the Audio Unit (macOS only)"                      ON)
