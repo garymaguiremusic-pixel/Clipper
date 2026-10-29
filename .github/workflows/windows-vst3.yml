@@ -1,0 +1,43 @@
+name: Windows VST3
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (VST3 only)
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64 -DSOLIDCLIP_BUILD_STANDALONE=OFF
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Package
+        shell: pwsh
+        run: Compress-Archive -Path build/SolidClip_artefacts/Release/VST3/SolidClip.vst3 -DestinationPath SolidClip-Windows-x64-VST3.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SolidClip-Windows-x64-VST3
+          path: SolidClip-Windows-x64-VST3.zip
+
+      - name: Publish to the "windows-latest" release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete windows-latest --cleanup-tag --yes || true
+          gh release create windows-latest SolidClip-Windows-x64-VST3.zip \
+            --target "$GITHUB_SHA" --prerelease --title "SolidClip - Windows x64 VST3 (latest build)" \
+            --notes "Built from $GITHUB_SHA. Unzip and copy SolidClip.vst3 to C:\Program Files\Common Files\VST3."
