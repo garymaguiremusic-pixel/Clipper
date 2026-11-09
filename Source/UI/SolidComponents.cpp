@@ -84,6 +84,7 @@ void SolidKnob::mouseDown (const MouseEvent& e)
 
     dragging = true;
     lastDragY = e.position.y;
+    dragValue = getValue();
     if (onGestureBegin) onGestureBegin();
     repaint();
 }
@@ -93,16 +94,18 @@ void SolidKnob::mouseDrag (const MouseEvent& e)
     if (! isEnabled() || ! dragging)
         return;
 
-    // Incremental drag in proportion space so shift mid-drag never jumps.
-    const double pixelsForFullRange = e.mods.isShiftDown() ? 1500.0 : 200.0;
-    const double delta = (double) (lastDragY - e.position.y) / pixelsForFullRange;
+    // Incremental drag, snapped to whole steps of 1.0 (0.1 with shift). The unsnapped
+    // position is kept, so slow drags still move and pressing shift mid-drag never jumps.
+    const bool fine = e.mods.isShiftDown();
+    const double range = getMaximum() - getMinimum();
+    const double pixelsForFullRange = fine ? 1500.0 : 250.0;
+    dragValue = jlimit (getMinimum(), getMaximum(),
+                        dragValue + (double) (lastDragY - e.position.y) * range / pixelsForFullRange);
     lastDragY = e.position.y;
 
-    if (std::abs (delta) > 1.0e-9)
-    {
-        const double prop = jlimit (0.0, 1.0, valueToProportionOfLength (getValue()) + delta);
-        setValue (proportionOfLengthToValue (prop), sendNotificationSync);
-    }
+    const double snapped = snapToStep (dragValue, fine ? kFineStep : kStep);
+    if (std::abs (snapped - getValue()) > 1.0e-9)
+        setValue (snapped, sendNotificationSync);
 }
 
 void SolidKnob::mouseUp (const MouseEvent&)
@@ -130,10 +133,38 @@ void SolidKnob::mouseWheelMove (const MouseEvent& e, const MouseWheelDetails& wh
     if (std::abs (dir) < 1.0e-6f)
         return;
 
-    const double step = (e.mods.isShiftDown() ? 1.0 : 4.0) / 127.0;
-    const double amount = jlimit (-1.0, 1.0, (double) dir * 8.0) * step;
-    const double prop = jlimit (0.0, 1.0, valueToProportionOfLength (getValue()) + amount);
-    setValueWithGesture (proportionOfLengthToValue (prop));
+    // One wheel notch = one step of 1.0 (0.1 with shift), the same increment as dragging.
+    // Trackpads send many small "smooth" events, so those are added up first.
+    int steps = 0;
+    if (wheel.isSmooth)
+    {
+        wheelAccumulator += dir;
+        constexpr float perStep = 0.12f;
+        while (wheelAccumulator >= perStep)  { ++steps; wheelAccumulator -= perStep; }
+        while (wheelAccumulator <= -perStep) { --steps; wheelAccumulator += perStep; }
+    }
+    else
+    {
+        steps = dir > 0.0f ? 1 : -1;
+    }
+
+    if (steps != 0)
+        stepBy (steps, e.mods.isShiftDown() ? kFineStep : kStep);
+}
+
+double SolidKnob::snapToStep (double v, double step) const
+{
+    return jlimit (getMinimum(), getMaximum(), std::round (v / step) * step);
+}
+
+void SolidKnob::stepBy (int steps, double step)
+{
+    // move to the next whole step, so -0.3 goes to 0 (up) or -1 (down), never -0.3 +/- 1
+    double v = getValue();
+    for (int i = 0; i < std::abs (steps); ++i)
+        v = steps > 0 ? std::floor (v / step + 1.0e-6) * step + step
+                      : std::ceil (v / step - 1.0e-6) * step - step;
+    setValueWithGesture (snapToStep (v, step));
 }
 
 void SolidKnob::mouseEnter (const MouseEvent&) { hovering = true;  repaint(); }
@@ -512,7 +543,7 @@ void HelpOverlay::paint (Graphics& g)
         "OVERSAMPLING:  detection + gain at up to 16x to catch inter-sample peaks. Linear phase is bit-transparent below the knee.",
         "TP GUARD:  catches the small true-peak overshoots left by the down-sampling filter, so the ceiling holds solid.",
         "DELTA:  listen to exactly what is removed (dry - wet, latency aligned).",
-        "Knobs: drag, shift-drag = fine, scroll wheel, double-click = default. Double-click a meter to reset them all.",
+        "Knobs: drag or scroll wheel in steps of 1.0 (hold shift for 0.1), double-click = default. Double-click a meter to reset.",
         "",
         "Click anywhere to close."
     };

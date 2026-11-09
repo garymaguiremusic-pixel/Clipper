@@ -653,6 +653,54 @@ namespace
     }
 
     //==============================================================================
+    void testKnobSteps()
+    {
+        std::printf ("Knobs: drag and mouse wheel move in steps of 1.0 (0.1 with shift)\n");
+        using namespace juce;
+        SolidKnob knob (SolidKnob::Size::Small, "Test");
+        knob.setRange (-24.0, 24.0, 0.0);
+        knob.setBounds (0, 0, 64, 72);
+        knob.setValue (-0.3, dontSendNotification);
+
+        auto source = Desktop::getInstance().getMainMouseSource();
+        auto event = [&] (float y, ModifierKeys mods)
+        {
+            return MouseEvent (source, Point<float> (32.0f, y), mods, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                               &knob, &knob, Time::getCurrentTime(), Point<float> (32.0f, 100.0f), Time::getCurrentTime(), 1, false);
+        };
+        auto wheel = [&] (float delta, ModifierKeys mods = {})
+        {
+            MouseWheelDetails w;
+            w.deltaX = 0.0f; w.deltaY = delta; w.isReversed = false; w.isSmooth = false; w.isInertial = false;
+            knob.mouseWheelMove (event (100.0f, mods), w);
+            return knob.getValue();
+        };
+        auto near = [] (double a, double b) { return std::abs (a - b) < 1.0e-9; };
+
+        check (near (wheel (0.1f), 0.0), "wheel up from -0.3 lands on 0.0");
+        check (near (wheel (0.1f), 1.0), "wheel up again moves to +1.0");
+        check (near (wheel (0.3f), 2.0), "a big wheel notch still moves exactly 1.0");
+        check (near (wheel (-0.1f), 1.0), "wheel down moves -1.0");
+        check (near (wheel (0.1f, ModifierKeys::shiftModifier), 1.1), "shift + wheel moves 0.1");
+
+        // drag: the value only ever takes whole steps
+        knob.setValue (0.0, dontSendNotification);
+        knob.mouseDown (event (100.0f, {}));
+        bool wholeSteps = true;
+        double previous = knob.getValue();
+        for (float y = 100.0f; y > 40.0f; y -= 1.0f)
+        {
+            knob.mouseDrag (event (y, {}));
+            const double v = knob.getValue();
+            wholeSteps = wholeSteps && near (v, std::round (v)) && std::abs (v - previous) <= 1.0 + 1e-9;
+            previous = v;
+        }
+        knob.mouseUp (event (40.0f, {}));
+        check (wholeSteps, "dragging moves in whole 1.0 steps");
+        check (knob.getValue() > 5.0, fmt ("a 60 pixel drag moved the knob (%.1f)", knob.getValue()));
+    }
+
+    //==============================================================================
     void reportPerformance()
     {
         std::printf ("Performance (info): real-time factor, 10 s of stereo audio at 44.1 kHz\n");
@@ -826,6 +874,7 @@ int main (int argc, char** argv)
     testLatency();
     testGainLink();
     testModeSwitchIsSmooth();
+    testKnobSteps();
     reportPerformance();
 
     std::printf ("\n%d checks, %d failed\n", checks, failures);

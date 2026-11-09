@@ -41,12 +41,17 @@ public:
 
 private:
     void setValueWithGesture (double v);
+    double snapToStep (double v, double step) const;
+    void stepBy (int steps, double step);
+
+    static constexpr double kStep = 1.0, kFineStep = 0.1;   // value units (dB or %); fine = shift
     juce::String valueText() const;
 
     Size knobSize;
     juce::String label;
     double defaultValue = 0.0;
-    float lastDragY = 0.0f;
+    float lastDragY = 0.0f, wheelAccumulator = 0.0f;
+    double dragValue = 0.0;   // unsnapped value while dragging
     bool dragging = false, hovering = false;
 };
 
