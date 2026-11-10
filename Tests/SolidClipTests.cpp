@@ -698,6 +698,35 @@ namespace
         knob.mouseUp (event (40.0f, {}));
         check (wholeSteps, "dragging moves in whole 1.0 steps");
         check (knob.getValue() > 5.0, fmt ("a 60 pixel drag moved the knob (%.1f)", knob.getValue()));
+
+        // shift-drag: 0.1 steps (1.0 -> 1.1 -> 1.2 ...)
+        knob.setValue (1.0, dontSendNotification);
+        knob.mouseDown (event (100.0f, {}));
+        bool tenths = true;
+        previous = knob.getValue();
+        for (float y = 100.0f; y > 70.0f; y -= 1.0f)
+        {
+            knob.mouseDrag (event (y, ModifierKeys::shiftModifier));
+            const double v = knob.getValue();
+            tenths = tenths && near (v * 10.0, std::round (v * 10.0)) && std::abs (v - previous) <= 0.1 + 1e-9;
+            previous = v;
+        }
+        knob.mouseUp (event (70.0f, {}));
+        check (tenths && knob.getValue() > 1.05, fmt ("shift-drag moves in 0.1 steps (1.0 -> %.1f)", knob.getValue()));
+
+        // Windows high-resolution wheels: several small events per notch still make one step
+        float acc = 0.0f;
+        const float notch = 120.0f * 0.5f / 256.0f;
+        int total = 0;
+        for (int i = 0; i < 4; ++i) total += SolidKnob::wheelSteps (acc, notch / 4.0f, notch);
+        check (total == 1, fmt ("a notch split into 4 events moved %d steps", total));
+        total = 0;
+        for (int i = 0; i < 3; ++i) total += SolidKnob::wheelSteps (acc, notch, notch);
+        check (total == 3, fmt ("3 whole notches moved %d steps", total));
+        total = SolidKnob::wheelSteps (acc, -notch, notch);
+        check (total == -1, "reversing the wheel moves back exactly one step");
+
+        check (sc::formatPercent (30.0f, 0) == "30 %" && sc::formatPercent (30.1f, 0) == "30.1 %", "Shape shows 0.1 % steps");
     }
 
     //==============================================================================

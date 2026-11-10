@@ -75,7 +75,7 @@ cmake --build build && ctest --test-dir build --output-on-failure
 | **TP Guard** | on/off | on | True-peak guard (see below). |
 | **Bypass** | on/off | off | Latency-compensated bypass. This is also the host's bypass parameter. |
 
-All continuous parameters are smoothed, and stage, mode, delta and bypass changes crossfade over about 10 ms. Every knob moves in **steps of 1.0** (dB or %), both when dragging and with the mouse wheel (one notch = 1.0). Hold **Shift** for fine steps of 0.1, e.g. to set a Ceiling of −0.3 dB. Double-click resets a knob to its default, and hovering shows its value. **Double-click any meter (or the curve display) to reset all the meters and peak holds.**
+All continuous parameters are smoothed, and stage, mode, delta and bypass changes crossfade over about 10 ms. Every knob moves in **steps of 1.0** (dB or %), both when dragging (about 6 pixels per step, so it ticks through every whole number) and with the mouse wheel (one notch = exactly 1.0, also on high-resolution / free-spin wheels that send several events per notch). Hold **Shift** for fine steps of 0.1 (1.0 → 1.1 → 1.2 …) with either the mouse or the wheel, e.g. to set a Ceiling of −0.3 dB. All values sit on a 0.1 grid, including from host automation. Double-click resets a knob to its default, and hovering shows its value. **Double-click any meter (or the curve display) to reset all the meters and peak holds.**
 
 ## Modes
 

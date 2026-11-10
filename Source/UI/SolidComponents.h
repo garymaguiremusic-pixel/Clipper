@@ -45,6 +45,19 @@ private:
     void stepBy (int steps, double step);
 
     static constexpr double kStep = 1.0, kFineStep = 0.1;   // value units (dB or %); fine = shift
+
+public:
+    /** Turns wheel deltas into whole steps (public for the tests). */
+    static int wheelSteps (float& accumulator, float delta, float perStep) noexcept;
+
+   #if JUCE_WINDOWS
+    static constexpr float kNotchSize = 120.0f * 0.5f / 256.0f;   // one standard notch as JUCE reports it on Windows
+   #else
+    static constexpr float kNotchSize = 0.0f;                     // macOS / Linux: one event per notch
+   #endif
+    static constexpr float kSmoothPerStep = 0.12f;                // trackpads
+
+private:
     juce::String valueText() const;
 
     Size knobSize;

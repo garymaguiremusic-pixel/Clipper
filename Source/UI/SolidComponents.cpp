@@ -96,14 +96,17 @@ void SolidKnob::mouseDrag (const MouseEvent& e)
 
     // Incremental drag, snapped to whole steps of 1.0 (0.1 with shift). The unsnapped
     // position is kept, so slow drags still move and pressing shift mid-drag never jumps.
+    // Every step (1.0, or 0.1 with shift) takes the same mouse travel: at least ~6 pixels,
+    // so the value visibly ticks through each whole number instead of jumping.
     const bool fine = e.mods.isShiftDown();
-    const double range = getMaximum() - getMinimum();
-    const double pixelsForFullRange = fine ? 1500.0 : 250.0;
+    const double step = fine ? kFineStep : kStep;
+    const double wholeSteps = std::max (1.0, (getMaximum() - getMinimum()) / kStep);
+    const double pixelsPerStep = jlimit (6.0, 24.0, 300.0 / wholeSteps);
     dragValue = jlimit (getMinimum(), getMaximum(),
-                        dragValue + (double) (lastDragY - e.position.y) * range / pixelsForFullRange);
+                        dragValue + (double) (lastDragY - e.position.y) * step / pixelsPerStep);
     lastDragY = e.position.y;
 
-    const double snapped = snapToStep (dragValue, fine ? kFineStep : kStep);
+    const double snapped = snapToStep (dragValue, step);
     if (std::abs (snapped - getValue()) > 1.0e-9)
         setValue (snapped, sendNotificationSync);
 }
@@ -134,22 +137,28 @@ void SolidKnob::mouseWheelMove (const MouseEvent& e, const MouseWheelDetails& wh
         return;
 
     // One wheel notch = one step of 1.0 (0.1 with shift), the same increment as dragging.
-    // Trackpads send many small "smooth" events, so those are added up first.
-    int steps = 0;
-    if (wheel.isSmooth)
-    {
-        wheelAccumulator += dir;
-        constexpr float perStep = 0.12f;
-        while (wheelAccumulator >= perStep)  { ++steps; wheelAccumulator -= perStep; }
-        while (wheelAccumulator <= -perStep) { --steps; wheelAccumulator += perStep; }
-    }
-    else
-    {
-        steps = dir > 0.0f ? 1 : -1;
-    }
-
+    const int steps = wheelSteps (wheelAccumulator, dir, wheel.isSmooth ? kSmoothPerStep : kNotchSize);
     if (steps != 0)
         stepBy (steps, e.mods.isShiftDown() ? kFineStep : kStep);
+}
+
+int SolidKnob::wheelSteps (float& accumulator, float delta, float perStep) noexcept
+{
+    // perStep <= 0: every event is one notch. Otherwise the deltas are added up until they
+    // make a whole notch, so high-resolution / free-spin wheels and trackpads (many small
+    // events per notch) still move exactly one step per notch.
+    if (perStep <= 0.0f)
+        return delta > 0.0f ? 1 : -1;
+
+    if ((delta > 0.0f) != (accumulator > 0.0f) && std::abs (accumulator) > 0.0f)
+        accumulator = 0.0f;   // direction changed: start counting afresh
+
+    accumulator += delta;
+    int steps = 0;
+    const float threshold = perStep * 0.9f;   // tolerate rounding in the reported notch size
+    while (accumulator >= threshold)  { ++steps; accumulator -= perStep; }
+    while (accumulator <= -threshold) { --steps; accumulator += perStep; }
+    return steps;
 }
 
 double SolidKnob::snapToStep (double v, double step) const
