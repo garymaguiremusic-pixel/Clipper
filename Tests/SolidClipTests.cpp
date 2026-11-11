@@ -718,14 +718,14 @@ namespace
 
         // Windows high-resolution wheels: several small events per notch still make one step
         float acc = 0.0f;
-        const float notch = 120.0f * 0.5f / 256.0f;
+        const float windowsNotch = 120.0f * 0.5f / 256.0f;
         int total = 0;
-        for (int i = 0; i < 4; ++i) total += SolidKnob::wheelSteps (acc, notch / 4.0f, notch);
+        for (int i = 0; i < 4; ++i) total += SolidKnob::wheelSteps (acc, windowsNotch / 4.0f, windowsNotch);
         check (total == 1, fmt ("a notch split into 4 events moved %d steps", total));
         total = 0;
-        for (int i = 0; i < 3; ++i) total += SolidKnob::wheelSteps (acc, notch, notch);
+        for (int i = 0; i < 3; ++i) total += SolidKnob::wheelSteps (acc, windowsNotch, windowsNotch);
         check (total == 3, fmt ("3 whole notches moved %d steps", total));
-        total = SolidKnob::wheelSteps (acc, -notch, notch);
+        total = SolidKnob::wheelSteps (acc, -windowsNotch, windowsNotch);
         check (total == -1, "reversing the wheel moves back exactly one step");
 
         check (sc::formatPercent (30.0f, 0) == "30 %" && sc::formatPercent (30.1f, 0) == "30.1 %", "Shape shows 0.1 % steps");
