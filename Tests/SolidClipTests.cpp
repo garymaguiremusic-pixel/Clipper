@@ -677,11 +677,13 @@ namespace
         };
         auto near = [] (double a, double b) { return std::abs (a - b) < 1.0e-9; };
 
-        check (near (wheel (0.1f), 0.0), "wheel up from -0.3 lands on 0.0");
-        check (near (wheel (0.1f), 1.0), "wheel up again moves to +1.0");
-        check (near (wheel (0.3f), 2.0), "a big wheel notch still moves exactly 1.0");
-        check (near (wheel (-0.1f), 1.0), "wheel down moves -1.0");
-        check (near (wheel (0.1f, ModifierKeys::shiftModifier), 1.1), "shift + wheel moves 0.1");
+        // one notch as this platform's JUCE reports it (Windows: 0.234; elsewhere any event)
+        const float notch = SolidKnob::kNotchSize > 0.0f ? SolidKnob::kNotchSize : 0.1f;
+        check (near (wheel (notch), 0.0), "wheel up from -0.3 lands on 0.0");
+        check (near (wheel (notch), 1.0), "wheel up again moves to +1.0");
+        check (near (wheel (notch * 1.3f), 2.0), "a big wheel notch still moves exactly 1.0");
+        check (near (wheel (-notch), 1.0), "wheel down moves -1.0");
+        check (near (wheel (notch, ModifierKeys::shiftModifier), 1.1), "shift + wheel moves 0.1");
 
         // drag: the value only ever takes whole steps
         knob.setValue (0.0, dontSendNotification);
