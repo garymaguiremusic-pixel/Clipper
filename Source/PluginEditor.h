@@ -77,7 +77,8 @@ private:
 };
 
 //==============================================================================
-class SolidClipAudioProcessorEditor : public juce::AudioProcessorEditor
+class SolidClipAudioProcessorEditor : public juce::AudioProcessorEditor,
+                                      private juce::Timer
 {
 public:
     explicit SolidClipAudioProcessorEditor (SolidClipAudioProcessor&);
@@ -85,7 +86,17 @@ public:
 
     void resized() override;
 
+    static constexpr int kMinWidth = SolidClipView::kWidth * 3 / 4;
+    static constexpr int kMaxWidth = SolidClipView::kWidth * 5 / 2;
+
 private:
+    void timerCallback() override;
+    int savedWidth() const;
+    static int heightFor (int width);
+
+    SolidClipAudioProcessor& solidProcessor;
+    bool restoringSize = true;
+    int lastSavedWidth = 0;   // the saved size we last applied or wrote
     CustomLookAndFeel lnf;
     SolidClipView view;
     juce::TooltipWindow tooltipWindow { this, 500 };

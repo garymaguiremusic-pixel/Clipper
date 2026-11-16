@@ -420,24 +420,52 @@ void SolidClipView::timerCallback()
 // SolidClipAudioProcessorEditor
 //==============================================================================
 SolidClipAudioProcessorEditor::SolidClipAudioProcessorEditor (SolidClipAudioProcessor& p)
-    : AudioProcessorEditor (&p), view (p)
+    : AudioProcessorEditor (&p), solidProcessor (p), view (p)
 {
+    // Read the saved size first: setting the resize limits below briefly resizes the
+    // editor, and that must not overwrite what was saved.
+    const int width = savedWidth();
+
     setLookAndFeel (&lnf);
     addAndMakeVisible (view);
 
-    constexpr double ratio = (double) SolidClipView::kWidth / (double) SolidClipView::kHeight;
     setResizable (true, true);
-    setResizeLimits (SolidClipView::kWidth * 3 / 4, SolidClipView::kHeight * 3 / 4,
-                     SolidClipView::kWidth * 5 / 2, SolidClipView::kHeight * 5 / 2);
-    getConstrainer()->setFixedAspectRatio (ratio);
+    setResizeLimits (kMinWidth, heightFor (kMinWidth), kMaxWidth, heightFor (kMaxWidth));
+    getConstrainer()->setFixedAspectRatio ((double) SolidClipView::kWidth / (double) SolidClipView::kHeight);
 
-    const int savedWidth = (int) p.apvts.state.getProperty (uiWidthId, SolidClipView::kWidth);
-    const int width = jlimit (SolidClipView::kWidth * 3 / 4, SolidClipView::kWidth * 5 / 2, savedWidth);
-    setSize (width, roundToInt (width / ratio));
+    setSize (width, heightFor (width));
+    lastSavedWidth = width;
+    restoringSize = false;
+    startTimerHz (4);
+}
+
+int SolidClipAudioProcessorEditor::heightFor (int width)
+{
+    return roundToInt (width * (double) SolidClipView::kHeight / (double) SolidClipView::kWidth);
+}
+
+int SolidClipAudioProcessorEditor::savedWidth() const
+{
+    return jlimit (kMinWidth, kMaxWidth, (int) solidProcessor.apvts.state.getProperty (uiWidthId, SolidClipView::kWidth));
+}
+
+void SolidClipAudioProcessorEditor::timerCallback()
+{
+    // A host that restores the session after opening the window brings a new saved size
+    // with it: follow it once. (Our own resizes update lastSavedWidth, so they never count.)
+    const int width = savedWidth();
+    if (width != lastSavedWidth)
+    {
+        lastSavedWidth = width;
+        restoringSize = true;
+        setSize (width, heightFor (width));
+        restoringSize = false;
+    }
 }
 
 SolidClipAudioProcessorEditor::~SolidClipAudioProcessorEditor()
 {
+    stopTimer();
     setLookAndFeel (nullptr);
 }
 
@@ -450,6 +478,10 @@ void SolidClipAudioProcessorEditor::resized()
     const float displayScale = Component::getApproximateScaleFactorForComponent (this);
     view.setRenderScale (scale * std::max (1.0f, displayScale));
 
-    if (auto* proc = dynamic_cast<SolidClipAudioProcessor*> (getAudioProcessor()))
-        proc->apvts.state.setProperty (uiWidthId, getWidth(), nullptr);
+    // remember the size the user chose; it is saved with the session (plugin state)
+    if (! restoringSize)
+    {
+        lastSavedWidth = getWidth();
+        solidProcessor.apvts.state.setProperty (uiWidthId, lastSavedWidth, nullptr);
+    }
 }

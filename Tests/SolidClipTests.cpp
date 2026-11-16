@@ -732,6 +732,35 @@ namespace
     }
 
     //==============================================================================
+    void testEditorKeepsItsSize()
+    {
+        std::printf ("Editor: keeps its size when closed and reopened, and in saved sessions\n");
+        SolidClipAudioProcessor proc;
+        proc.setPlayConfigDetails (2, 2, 44100.0, 512);
+        proc.prepareToPlay (44100.0, 512);
+
+        auto heightFor = [] (int w) { return juce::roundToInt (w * (double) SolidClipView::kHeight / SolidClipView::kWidth); };
+        {
+            std::unique_ptr<juce::AudioProcessorEditor> editor (proc.createEditor());
+            check (editor->getWidth() == SolidClipView::kWidth, fmt ("first open uses the default size (%d)", editor->getWidth()));
+            editor->setSize (1300, heightFor (1300));   // the user drags the corner
+        }
+        {
+            std::unique_ptr<juce::AudioProcessorEditor> editor (proc.createEditor());
+            check (editor->getWidth() == 1300, fmt ("reopened at %d px wide, expected 1300", editor->getWidth()));
+            editor->setSize (700, heightFor (700));
+        }
+
+        // saved with the session, e.g. closing and reopening the DAW project
+        juce::MemoryBlock state;
+        proc.getStateInformation (state);
+        SolidClipAudioProcessor reloaded;
+        reloaded.setStateInformation (state.getData(), (int) state.getSize());
+        std::unique_ptr<juce::AudioProcessorEditor> editor (reloaded.createEditor());
+        check (editor->getWidth() == 700, fmt ("reloaded session opened at %d px wide, expected 700", editor->getWidth()));
+    }
+
+    //==============================================================================
     void reportPerformance()
     {
         std::printf ("Performance (info): real-time factor, 10 s of stereo audio at 44.1 kHz\n");
@@ -906,6 +935,7 @@ int main (int argc, char** argv)
     testGainLink();
     testModeSwitchIsSmooth();
     testKnobSteps();
+    testEditorKeepsItsSize();
     reportPerformance();
 
     std::printf ("\n%d checks, %d failed\n", checks, failures);
