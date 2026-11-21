@@ -97,8 +97,8 @@ private:
 
 //==============================================================================
 /**
-    Horizontal bar meter with peak hold. Level meters show dBFS (blue) with a ceiling
-    marker; gain-reduction meters grow from the left in red.
+    Horizontal bar meter with peak hold. Level meters show dBFS with a ceiling
+    marker; both kinds fill with the orange accent gradient.
 */
 class BarMeter : public juce::Component,
                  public juce::SettableTooltipClient

@@ -9,17 +9,17 @@ CustomLookAndFeel::CustomLookAndFeel()
     setColour (ComboBox::textColourId,                  Colours::white);
     setColour (ComboBox::backgroundColourId,            SolidColours::insetBottom);
     setColour (ComboBox::outlineColourId,               SolidColours::bevelDark);
-    setColour (ComboBox::arrowColourId,                 Colour (0xffd0d4d8));
-    setColour (PopupMenu::backgroundColourId,           Colour (0xff1b1e21));
-    setColour (PopupMenu::textColourId,                 Colour (0xffe8ebee));
-    setColour (PopupMenu::highlightedBackgroundColourId, Colour (0xff2a6fb8));
+    setColour (ComboBox::arrowColourId,                 SolidColours::accent);
+    setColour (PopupMenu::backgroundColourId,           SolidColours::popup);
+    setColour (PopupMenu::textColourId,                 SolidColours::popupText);
+    setColour (PopupMenu::highlightedBackgroundColourId, SolidColours::accentBottom);
     setColour (PopupMenu::highlightedTextColourId,      Colours::white);
     setColour (PopupMenu::headerTextColourId,           SolidColours::labelText);
-    setColour (TextButton::textColourOffId,             Colour (0xffdfe3e6));
+    setColour (TextButton::textColourOffId,             SolidColours::buttonText);
     setColour (TextButton::textColourOnId,              Colours::white);
     setColour (TooltipWindow::textColourId,             Colours::white);
-    setColour (TooltipWindow::backgroundColourId,       Colour (0xf0163f78));
-    setColour (TooltipWindow::outlineColourId,          SolidColours::blue);
+    setColour (TooltipWindow::backgroundColourId,       SolidColours::popup.withAlpha (0.94f));
+    setColour (TooltipWindow::outlineColourId,          SolidColours::accent);
 }
 
 Font CustomLookAndFeel::uiFont (float height, bool bold)
@@ -63,29 +63,29 @@ void CustomLookAndFeel::drawLargeKnob (Graphics& g, Rectangle<float> area, float
     const float angle = start + pos * (end - start);
 
     // Fine tick marks around the outside
-    drawTicks (g, c, R - 4.5f, R, start, end, 41, Colour (0xff9aa1a8).withAlpha (0.75f), 0.8f);
+    drawTicks (g, c, R - 4.5f, R, start, end, 41, SolidColours::lightGrey.withAlpha (0.6f), 0.8f);
 
-    // Blue arc ring: dark recessed track, glow and bright value arc
+    // Orange arc ring: dark recessed track, glow and bright value arc
     const float ringR = R - 9.5f;
     {
         Path track;
         track.addCentredArc (c.x, c.y, ringR, ringR, 0.0f, start, end, true);
-        g.setColour (Colour (0xff0a0c0e));
+        g.setColour (SolidColours::bevelDark);
         g.strokePath (track, PathStrokeType (7.0f, PathStrokeType::curved, PathStrokeType::rounded));
-        g.setColour (Colour (0xff1a2633));
+        g.setColour (SolidColours::arcTrack);
         g.strokePath (track, PathStrokeType (4.0f, PathStrokeType::curved, PathStrokeType::rounded));
 
         if (pos > 0.001f)
         {
             Path value;
             value.addCentredArc (c.x, c.y, ringR, ringR, 0.0f, start, angle, true);
-            g.setColour (SolidColours::blueGlow.withAlpha (0.18f));
+            g.setColour (SolidColours::accentGlow.withAlpha (0.18f));
             g.strokePath (value, PathStrokeType (12.0f, PathStrokeType::curved, PathStrokeType::rounded));
-            g.setColour (SolidColours::blueGlow.withAlpha (0.35f));
+            g.setColour (SolidColours::accentGlow.withAlpha (0.35f));
             g.strokePath (value, PathStrokeType (7.5f, PathStrokeType::curved, PathStrokeType::rounded));
-            g.setColour (SolidColours::blue);
+            g.setColour (SolidColours::accent);
             g.strokePath (value, PathStrokeType (4.0f, PathStrokeType::curved, PathStrokeType::rounded));
-            g.setColour (Colour (0xffc9e6ff).withAlpha (0.8f));
+            g.setColour (SolidColours::accentLight.withAlpha (0.8f));
             g.strokePath (value, PathStrokeType (1.2f, PathStrokeType::curved, PathStrokeType::rounded));
         }
     }
@@ -148,7 +148,7 @@ void CustomLookAndFeel::drawSmallKnob (Graphics& g, Rectangle<float> area, float
     const float R = size * 0.5f - 1.0f;
     const float angle = start + pos * (end - start);
 
-    drawTicks (g, c, R - 3.5f, R, start, end, 21, Colour (0xff8d949b).withAlpha (0.8f), 0.8f);
+    drawTicks (g, c, R - 3.5f, R, start, end, 21, SolidColours::lightGrey.withAlpha (0.6f), 0.8f);
 
     const float bodyR = R - 6.0f;
     const auto body = Rectangle<float> (bodyR * 2.0f, bodyR * 2.0f).withCentre (c);
@@ -158,14 +158,14 @@ void CustomLookAndFeel::drawSmallKnob (Graphics& g, Rectangle<float> area, float
     DropShadow (Colours::black.withAlpha (0.8f), 6, { 0, 3 }).drawForPath (g, bodyPath);
 
     // rim
-    g.setGradientFill (ColourGradient (Colour (0xff6a6f75), body.getX(), body.getY(),
-                                       Colour (0xff141618), body.getX(), body.getBottom(), false));
+    g.setGradientFill (ColourGradient (SolidColours::knobRimTop, body.getX(), body.getY(),
+                                       SolidColours::knobRimBottom, body.getX(), body.getBottom(), false));
     g.fillEllipse (body);
 
     // rubberised cap
     const auto cap = body.reduced (bodyR * 0.14f);
-    ColourGradient capGrad (Colour (0xff4a4f55), cap.getCentreX(), cap.getY(),
-                            Colour (0xff1f2225), cap.getCentreX(), cap.getBottom(), false);
+    ColourGradient capGrad (SolidColours::knobCapTop, cap.getCentreX(), cap.getY(),
+                            SolidColours::knobCapBottom, cap.getCentreX(), cap.getBottom(), false);
     g.setGradientFill (capGrad);
     g.fillEllipse (cap);
 
@@ -180,7 +180,7 @@ void CustomLookAndFeel::drawSmallKnob (Graphics& g, Rectangle<float> area, float
     // indicator line
     const float s = std::sin (angle), co = -std::cos (angle);
     const float p0 = bodyR * 0.35f, p1 = bodyR * 0.92f;
-    g.setColour (Colour (0xffe6e9ec));
+    g.setColour (Colours::white);
     g.drawLine (c.x + s * p0, c.y + co * p0, c.x + s * p1, c.y + co * p1, 1.8f);
 }
 
@@ -207,7 +207,7 @@ void CustomLookAndFeel::drawComboBox (Graphics& g, int width, int height, bool,
 
     if (box.hasKeyboardFocus (false) || box.isPopupActive())
     {
-        g.setColour (SolidColours::blue.withAlpha (0.45f));
+        g.setColour (SolidColours::accent.withAlpha (0.45f));
         g.drawRoundedRectangle (b.reduced (1.0f), 3.0f, 1.0f);
     }
 
@@ -232,7 +232,7 @@ void CustomLookAndFeel::positionComboBoxText (ComboBox& box, Label& label)
 void CustomLookAndFeel::drawPopupMenuBackground (Graphics& g, int width, int height)
 {
     g.fillAll (findColour (PopupMenu::backgroundColourId));
-    g.setColour (SolidColours::blue.withAlpha (0.35f));
+    g.setColour (SolidColours::accent.withAlpha (0.35f));
     g.drawRect (0, 0, width, height, 1);
 }
 
@@ -243,8 +243,8 @@ void CustomLookAndFeel::drawButtonBackground (Graphics& g, Button& button, const
     auto b = button.getLocalBounds().toFloat().reduced (0.5f);
     const bool on = button.getToggleState();
 
-    Colour top = on ? Colour (0xff2f86e0) : Colour (0xff6b7076);
-    Colour bottom = on ? Colour (0xff15508f) : Colour (0xff3c4045);
+    Colour top = on ? SolidColours::accentTop : SolidColours::buttonTop;
+    Colour bottom = on ? SolidColours::accentBottom : SolidColours::buttonBottom;
     if (isHighlighted) { top = top.brighter (0.12f); bottom = bottom.brighter (0.12f); }
     if (isDown)        std::swap (top, bottom);
 

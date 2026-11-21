@@ -6,7 +6,7 @@ A transparent, **linked** soft clipper / clipper-limiter hybrid (VST3 + Standalo
 
 SolidClip holds peaks at a solid, consistent ceiling while adding as little audible distortion as possible. In particular, it adds none to the side channel (L − R) when you solo it. It never shapes the channels separately. Instead it computes **one gain** and applies it to both channels, so the ratio between them, and with it the stereo image, is never changed.
 
-The GUI uses the same look and feel as *Virus Delay*: brushed metal, grey header panels, chrome and blue knobs, blue LCDs. It is freely resizable: drag the bottom-right corner, and everything scales together and stays sharp.
+The GUI uses the same black and orange theme as *LeadVerb*: black panels with a faint brushed-metal texture, chrome knobs with orange value arcs, black glass LCDs with orange values, and orange as the only accent colour (toggled buttons, meters, the transfer curve). Light grey is used for labels, white for highlights. Every colour is a named constant in `SolidColours` (`Source/CustomLookAndFeel.h`). It is freely resizable: drag the bottom-right corner, and everything scales together and stays sharp.
 
 ---
 
@@ -127,7 +127,7 @@ Hard clipping (Knee 0, Shape 0) stays the dirtiest setting by nature. For the cl
 Source/
   PluginProcessor.*      APVTS, bus layout (stereo only), latency, state
   PluginEditor.*         resizable Virus-style editor (fixed design size, scaled by a transform)
-  CustomLookAndFeel.*    procedurally drawn knobs, panels, LCDs, buttons (from Virus Delay)
+  CustomLookAndFeel.*    colour palette (SolidColours) + procedurally drawn knobs, panels, LCDs, buttons
   Parameters.h           parameter IDs, layout, settings snapshot
   UI/SolidComponents.*   knob, LCD, bar meters (peak hold), transfer curve, help overlay
   DSP/

@@ -240,7 +240,7 @@ void SolidClipView::createBackground()
     Graphics g (background);
     g.addTransform (AffineTransform::scale (s));
 
-    g.setGradientFill (ColourGradient (Colour (0xff3b3e42), 0.0f, 0.0f, Colour (0xff1e2023), 0.0f, (float) kHeight, false));
+    g.setGradientFill (ColourGradient (SolidColours::windowTop, 0.0f, 0.0f, SolidColours::windowBottom, 0.0f, (float) kHeight, false));
     g.fillAll();
 
     // brushed metal: faint full-width lines plus random short streaks
@@ -266,7 +266,7 @@ void SolidClipView::createBackground()
 
 void SolidClipView::drawWordmark (Graphics& g, Rectangle<float> area)
 {
-    // Stylised lowercase wordmark: chrome "solid", blue "clip", and a swoosh.
+    // Stylised lowercase wordmark: chrome "solid", orange "clip", and a swoosh.
     const float baseline = area.getBottom() - 7.0f;
 
     GlyphArrangement main;
@@ -289,7 +289,7 @@ void SolidClipView::drawWordmark (Graphics& g, Rectangle<float> area)
     second.createPath (secondPath);
     g.setColour (Colours::black.withAlpha (0.5f));
     g.fillPath (secondPath, AffineTransform::translation (1.0f, 1.0f));
-    g.setColour (SolidColours::blue);
+    g.setColour (SolidColours::accent);
     g.fillPath (secondPath);
 
     Path swoosh;
@@ -297,7 +297,7 @@ void SolidClipView::drawWordmark (Graphics& g, Rectangle<float> area)
     const float ex = secondPath.getBounds().getRight();
     swoosh.startNewSubPath (sx, sy);
     swoosh.quadraticTo ((sx + ex) * 0.5f, sy + 3.5f, ex + 6.0f, sy - 2.0f);
-    g.setGradientFill (ColourGradient (SolidColours::blue.withAlpha (0.0f), sx, sy, SolidColours::blue, ex, sy, false));
+    g.setGradientFill (ColourGradient (SolidColours::accent.withAlpha (0.0f), sx, sy, SolidColours::accent, ex, sy, false));
     g.strokePath (swoosh, PathStrokeType (1.6f, PathStrokeType::curved, PathStrokeType::rounded));
 }
 
@@ -307,7 +307,7 @@ void SolidClipView::paint (Graphics& g)
 
     // --- top strip ----------------------------------------------------------------
     auto top = Rectangle<float> (0.0f, 0.0f, (float) kWidth, (float) kTopStripH);
-    g.setGradientFill (ColourGradient (Colour (0xff4a4e53), 0.0f, 0.0f, Colour (0xff2b2e32), 0.0f, top.getBottom(), false));
+    g.setGradientFill (ColourGradient (SolidColours::stripTop, 0.0f, 0.0f, SolidColours::stripBottom, 0.0f, top.getBottom(), false));
     g.fillRect (top);
     g.setColour (Colours::white.withAlpha (0.18f));
     g.drawHorizontalLine (0, 0.0f, (float) kWidth);
@@ -351,7 +351,7 @@ void SolidClipView::paint (Graphics& g)
 
     // --- bottom bar -----------------------------------------------------------------
     auto bar = Rectangle<float> (0.0f, (float) kBottomBarY, (float) kWidth, (float) (kHeight - kBottomBarY));
-    g.setGradientFill (ColourGradient (Colour (0xff17191b), 0.0f, bar.getY(), Colour (0xff0c0d0e), 0.0f, bar.getBottom(), false));
+    g.setGradientFill (ColourGradient (SolidColours::barTop, 0.0f, bar.getY(), SolidColours::barBottom, 0.0f, bar.getBottom(), false));
     g.fillRect (bar);
     g.setColour (Colours::white.withAlpha (0.1f));
     g.drawHorizontalLine (kBottomBarY, 0.0f, (float) kWidth);
@@ -368,7 +368,7 @@ void SolidClipView::paint (Graphics& g)
     auto inset = bar.reduced (70.0f, 7.0f);
     CustomLookAndFeel::drawInsetBox (g, inset, 3.0f);
     g.setFont (CustomLookAndFeel::uiFont (13.0f, true));
-    g.setColour (Colour (0xffc8cdd2));
+    g.setColour (SolidColours::lightGrey);
     g.drawText ("SOLID CLIP", inset, Justification::centred);
 }
 

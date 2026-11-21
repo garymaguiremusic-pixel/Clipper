@@ -45,7 +45,7 @@ void SolidKnob::paint (Graphics& g)
         {
             auto valueArea = bounds.removeFromBottom (13.0f);
             g.setFont (CustomLookAndFeel::uiFont (11.0f, true));
-            g.setColour (SolidColours::blue.withMultipliedAlpha (isEnabled() ? 1.0f : 0.5f));
+            g.setColour (SolidColours::accent.withMultipliedAlpha (isEnabled() ? 1.0f : 0.5f));
             g.drawText (valueText(), valueArea, Justification::centred);
         }
 
@@ -56,7 +56,7 @@ void SolidKnob::paint (Graphics& g)
         if ((hovering || dragging) && isEnabled() && ! showValueAlways)
         {
             g.setFont (CustomLookAndFeel::uiFont (11.0f, true));
-            g.setColour (SolidColours::blue);
+            g.setColour (SolidColours::accent);
             g.drawText (valueText(), labelArea, Justification::centred);
         }
         else
@@ -235,7 +235,8 @@ void LcdDisplay::paint (Graphics& g)
     auto b = getLocalBounds().toFloat().reduced (1.0f);
     CustomLookAndFeel::drawLcd (g, b, dimmed);
 
-    const auto textColour = dimmed ? Colour (0xff8a9097) : Colours::white;
+    const auto nameColour  = dimmed ? SolidColours::dimText : SolidColours::lightGrey;
+    const auto valueColour = dimmed ? SolidColours::dimText : SolidColours::accent;
     auto textArea = b.reduced (6.0f, 0.0f);
 
     const auto font = CustomLookAndFeel::uiFont (11.0f, true);
@@ -247,8 +248,9 @@ void LcdDisplay::paint (Graphics& g)
     g.setColour (Colours::black.withAlpha (0.35f));
     g.drawFittedText (nameText, nameArea.translated (0, 1), Justification::centredLeft, 1, 0.75f);
     g.drawText (valueText, textArea.translated (0.0f, 1.0f), Justification::centredRight);
-    g.setColour (textColour);
+    g.setColour (nameColour);
     g.drawFittedText (nameText, nameArea, Justification::centredLeft, 1, 0.75f);
+    g.setColour (valueColour);
     g.drawText (valueText, textArea, Justification::centredRight);
 }
 
@@ -355,10 +357,8 @@ void BarMeter::paint (Graphics& g)
     if (p > 0.0f)
     {
         auto bar = inner.withWidth (inner.getWidth() * p);
-        const auto top = kind == Kind::Level ? SolidColours::lcdTop : SolidColours::red;
-        const auto bottom = kind == Kind::Level ? SolidColours::lcdBottom : SolidColours::red.darker (0.6f);
-        g.setGradientFill (ColourGradient (top.withMultipliedAlpha (alpha), 0.0f, bar.getY(),
-                                           bottom.withMultipliedAlpha (alpha), 0.0f, bar.getBottom(), false));
+        g.setGradientFill (ColourGradient (SolidColours::accentTop.withMultipliedAlpha (alpha), 0.0f, bar.getY(),
+                                           SolidColours::accentBottom.withMultipliedAlpha (alpha), 0.0f, bar.getBottom(), false));
         g.fillRect (bar);
         g.setColour (Colours::white.withAlpha (0.18f * alpha));
         g.drawHorizontalLine ((int) bar.getY(), bar.getX(), bar.getRight());
@@ -368,7 +368,7 @@ void BarMeter::paint (Graphics& g)
     const float hp = toProportion (holdDb);
     if (hp > 0.0f)
     {
-        g.setColour ((kind == Kind::Level ? Colour (0xffc9e6ff) : Colour (0xffffb0aa)).withAlpha (alpha));
+        g.setColour (SolidColours::accentLight.withAlpha (alpha));
         g.fillRect (inner.getX() + inner.getWidth() * hp - 1.0f, inner.getY(), 2.0f, inner.getHeight());
     }
 
@@ -388,7 +388,7 @@ void BarMeter::paint (Graphics& g)
         text = (holdDb > 0.005f ? "-" : "") + String (holdDb, 2);
 
     g.setFont (CustomLookAndFeel::uiFont (11.0f, true));
-    g.setColour ((holdDb > ceilingDb + 0.01f && kind == Kind::Level ? SolidColours::red : Colour (0xffdfe3e6)).withMultipliedAlpha (dimmed ? 0.4f : 1.0f));
+    g.setColour ((holdDb > ceilingDb + 0.01f && kind == Kind::Level ? SolidColours::red : SolidColours::lightGrey).withMultipliedAlpha (dimmed ? 0.4f : 1.0f));
     g.drawText (text + " dB", valueArea, Justification::centredRight);
 }
 
@@ -462,9 +462,9 @@ void TransferCurve::paint (Graphics& g)
     // knee region
     if (knee > 0.0f)
     {
-        g.setColour (SolidColours::blue.withAlpha (0.10f));
+        g.setColour (SolidColours::accent.withAlpha (0.10f));
         g.fillRect (Rectangle<float>::leftTopRightBottom (xFor (t), plot.getY(), xFor (c), plot.getBottom()));
-        g.setColour (SolidColours::blue.withAlpha (0.45f));
+        g.setColour (SolidColours::accent.withAlpha (0.45f));
         const float dashes[] = { 3.0f, 3.0f };
         g.drawDashedLine ({ xFor (t), plot.getY(), xFor (t), plot.getBottom() }, dashes, 2, 1.0f);
         g.drawText ("KNEE", Rectangle<float> (xFor (t) + 2.0f, plot.getBottom() - 12.0f, 40.0f, 10.0f), Justification::centredLeft);
@@ -476,7 +476,7 @@ void TransferCurve::paint (Graphics& g)
     g.drawDashedLine ({ xFor (kCurveMinDb), yFor (kCurveMinDb), xFor (kCurveMaxDb), yFor (kCurveMaxDb) }, dashes, 2, 1.0f);
 
     // ceiling
-    g.setColour (SolidColours::red.withAlpha (0.55f));
+    g.setColour (SolidColours::lightGrey.withAlpha (0.55f));
     g.drawHorizontalLine ((int) yFor (c), plot.getX(), plot.getRight());
     g.drawText ("CEILING", Rectangle<float> (plot.getX() + 2.0f, yFor (c) + 2.0f, 60.0f, 10.0f), Justification::centredLeft);
 
@@ -496,9 +496,9 @@ void TransferCurve::paint (Graphics& g)
         const Point<float> p { xFor (inDb), yFor (outDb (inDb)) };
         if (i == 0) curve.startNewSubPath (p); else curve.lineTo (p);
     }
-    g.setColour (SolidColours::blueGlow.withAlpha (0.3f));
+    g.setColour (SolidColours::accentGlow.withAlpha (0.3f));
     g.strokePath (curve, PathStrokeType (5.0f, PathStrokeType::curved, PathStrokeType::rounded));
-    g.setColour (SolidColours::blue);
+    g.setColour (SolidColours::accent);
     g.strokePath (curve, PathStrokeType (2.0f, PathStrokeType::curved, PathStrokeType::rounded));
 
     // live input peak
@@ -525,8 +525,9 @@ void HelpButton::paintButton (Graphics& g, bool isHighlighted, bool isDown)
     auto b = getLocalBounds().toFloat().reduced (1.0f);
     g.setColour (Colours::black.withAlpha (0.6f));
     g.fillEllipse (b.translated (0.0f, 1.0f));
-    g.setGradientFill (ColourGradient (isHighlighted ? Colour (0xff8a9096) : Colour (0xff6f757b), 0.0f, b.getY(),
-                                       Colour (0xff35393d), 0.0f, b.getBottom(), false));
+    const auto top = isHighlighted ? SolidColours::buttonTop.brighter (0.12f) : SolidColours::buttonTop;
+    const auto bottom = isHighlighted ? SolidColours::buttonBottom.brighter (0.12f) : SolidColours::buttonBottom;
+    g.setGradientFill (ColourGradient (top, 0.0f, b.getY(), bottom, 0.0f, b.getBottom(), false));
     g.fillEllipse (isDown ? b.reduced (0.5f) : b);
     g.setColour (SolidColours::bevelDark);
     g.drawEllipse (b, 1.0f);
@@ -561,7 +562,7 @@ void HelpOverlay::paint (Graphics& g)
     g.setFont (CustomLookAndFeel::uiFont (11.0f));
     for (auto* line : lines)
     {
-        g.setColour (String (line).startsWith ("Click") ? SolidColours::blue : Colour (0xffdfe3e6));
+        g.setColour (String (line).startsWith ("Click") ? SolidColours::accent : SolidColours::lightGrey);
         g.drawFittedText (line, text.removeFromTop (22.0f).toNearestInt(), Justification::centredLeft, 1, 0.8f);
     }
 }
